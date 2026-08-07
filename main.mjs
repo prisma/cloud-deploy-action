@@ -1,4 +1,4 @@
-// prisma/compute-deploy-action: install, build, and deploy (or destroy) a
+// prisma/cloud-deploy-action: install, build, and deploy (or destroy) a
 // Prisma Composer app, reporting the attempt. Interface and behaviors are
 // frozen by ./README.md; reporting is a logged stub until the Builds API
 // exists.

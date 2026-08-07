@@ -1,6 +1,6 @@
 # Prisma Deploy action
 
-`prisma/compute-deploy-action` installs, builds, and deploys (or destroys)
+`prisma/cloud-deploy-action` installs, builds, and deploys (or destroys)
 a Prisma Composer app from GitHub Actions, and reports the attempt.
 Reporting is a logged stub until the Builds API exists; the payload shapes
 below are frozen so the stub can become a real client without changing the
@@ -10,7 +10,7 @@ This is the consolidation of four in-repo experimental actions; see
 [Provenance](#provenance).
 
 ```yaml
-- uses: prisma/compute-deploy-action@main
+- uses: prisma/cloud-deploy-action@main
   with:
     build-command: npm run build
   env:
@@ -56,7 +56,7 @@ jobs:
         with:
           # Node 22, not 24: prisma-composer 0.6.0 crashes on Node 24.
           node-version: 22
-      - uses: prisma/compute-deploy-action@main
+      - uses: prisma/cloud-deploy-action@main
         with:
           build-command: npm run build
         env:
@@ -74,7 +74,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - uses: prisma/compute-deploy-action@main
+      - uses: prisma/cloud-deploy-action@main
         with:
           mode: destroy
           # The deleted ref reaches the action as an env var (INPUT_STAGE),
