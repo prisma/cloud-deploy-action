@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Match runs.using in action.yml.
+          node-version: 24
+      - name: Syntax-check the action scripts
+        # node --check reads only its first argument, so one invocation per file.
+        run: |
+          node --check main.mjs
+          node --check post.mjs
+      - name: Sanity-check action.yml
+        run: |
+          node -e '
+            const { readFileSync, existsSync } = require("node:fs");
+            const src = readFileSync("action.yml", "utf8");
+            const checks = [
+              ["name: Prisma Deploy", /^name: Prisma Deploy$/m],
+              ["runs.using: node24", /^  using: node24$/m],
+              ["runs.main: main.mjs", /^  main: main\.mjs$/m],
+              ["runs.post: post.mjs", /^  post: post\.mjs$/m],
+            ];
+            for (const name of ["build-command", "install-command", "module", "mode", "stage", "composer-version", "working-directory"]) {
+              checks.push([`input ${name}`, new RegExp(`^  ${name}:$`, "m")]);
+            }
+            for (const name of ["outcome", "build-id"]) {
+              checks.push([`output ${name}`, new RegExp(`^  ${name}:$`, "m")]);
+            }
+            const missing = checks.filter(([, re]) => !re.test(src)).map(([what]) => what);
+            for (const file of ["main.mjs", "post.mjs"]) {
+              if (!existsSync(file)) missing.push(`referenced file ${file}`);
+            }
+            if (missing.length > 0) {
+              console.error(`action.yml sanity check failed, missing: ${missing.join(", ")}`);
+              process.exit(1);
+            }
+            console.log("action.yml sanity check passed");
+          '
