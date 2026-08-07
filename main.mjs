@@ -141,12 +141,23 @@ if (!(process.env.PRISMA_SERVICE_TOKEN ?? "").trim()) {
 
 // The stage reaches the argv array straight from the environment; it is
 // never interpolated into a shell string.
-const composer = `prisma-composer@${composerVersion}`;
-const composerArgs =
-  mode === "deploy"
-    ? [composer, "deploy", modulePath, ...(stage ? ["--stage", stage] : [])]
-    : [composer, "destroy", modulePath, "--stage", stage];
+//
+// The CLI bin is named prisma-composer but ships inside @prisma/composer;
+// there is no npm package named prisma-composer, so `npx prisma-composer@v`
+// 404s. The repo's own install already provides the bin (the packages are in
+// its dependencies), so prefer the local bin; fall back to fetching the
+// pinned package only when the repo does not carry it.
+const localBin = join(workdir, "node_modules", ".bin", "prisma-composer");
+const [composerCmd, composerLead] = existsSync(localBin)
+  ? [localBin, []]
+  : ["npx", [`--package=@prisma/composer@${composerVersion}`, "prisma-composer"]];
+const composerArgs = [
+  ...composerLead,
+  ...(mode === "deploy"
+    ? ["deploy", modulePath, ...(stage ? ["--stage", stage] : [])]
+    : ["destroy", modulePath, "--stage", stage]),
+];
 
-runPhase(mode, "npx", composerArgs);
+runPhase(mode, composerCmd, composerArgs);
 report("final", { outcome: "succeeded" });
 finish("succeeded");
