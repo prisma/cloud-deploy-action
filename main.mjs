@@ -120,11 +120,12 @@ const installCommand = (() => {
 
 runPhase("install", installCommand);
 
-// Destroy never builds: delete events execute the default branch's workflow,
-// so teardown must not depend on the default branch's build health.
-if (mode === "deploy") {
-  runPhase("build", input("build-command") || "npm run build");
-}
+// Destroy builds too, by composer's own requirement: "destroy evaluates the
+// same stack program as deploy, which packages the built artifacts — so the
+// app must be built first" (its error text on 0.6.0). We wanted destroy to
+// skip the build so teardown never depends on the default branch's build
+// health; composer does not allow that today.
+runPhase("build", input("build-command") || "npm run build");
 
 // The credential guard: everything past this point needs the secret. In
 // repos without it (fixtures), the run ends here, green. No final report is

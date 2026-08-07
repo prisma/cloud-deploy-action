@@ -88,7 +88,7 @@ jobs:
 
 | Input | Default | Meaning |
 | --- | --- | --- |
-| `build-command` | `npm run build` | The repo's full build. The action runs it verbatim; it contains no framework knowledge. Deploy mode only — destroy never builds. |
+| `build-command` | `npm run build` | The repo's full build. The action runs it verbatim; it contains no framework knowledge. Runs in both modes: composer's destroy evaluates the stack program, which needs the built artifacts. |
 | `install-command` | `""` | Empty = auto-detect: `bun.lock`/`bun.lockb` → `bun install --frozen-lockfile`; `package-lock.json` → `npm ci`; neither → fail with a named error (pnpm/yarn are out of scope for now). |
 | `module` | `module.ts` | Path to the Composer module. |
 | `mode` | `deploy` | `deploy` or `destroy`. |
@@ -105,12 +105,14 @@ jobs:
 
 ## Behaviors (normative)
 
-1. **Phases.** Deploy mode runs `install` → `build` → `deploy`; destroy
-   mode runs `install` → `destroy` and never builds. Delete events execute
-   the default branch's workflow, so teardown must not depend on the
-   default branch's build health — and whatever a delete-event checkout
-   built would be the default branch's code, unrelated to the deleted
-   branch. Each phase runs in its own log group. A phase failure sets
+1. **Phases.** Both modes run `install` → `build` → then `deploy` or
+   `destroy`. We wanted destroy to skip the build (teardown should not
+   depend on the default branch's build health, and a delete-event
+   checkout builds the default branch's code anyway), but composer 0.6.0
+   requires it: "destroy evaluates the same stack program as deploy,
+   which packages the built artifacts — so the app must be built first"
+   (its own error text). Revisit when composer can destroy from state
+   alone. Each phase runs in its own log group. A phase failure sets
    `outcome=failed`, records the failing phase, skips later phases, and
    fails the step.
 2. **The credential guard.** If `PRISMA_SERVICE_TOKEN` is absent or
@@ -180,7 +182,10 @@ raised independently by the fixtures' implementation notes:
 
 1. `runs.using: node24` — runners deprecated `node20` and force Node 24
    anyway.
-2. Destroy mode runs `install` → `destroy`, never `build` (behavior 1).
+2. Destroy mode was amended to `install` → `destroy` without a build,
+   then reverted by reality: composer's destroy needs the built
+   artifacts (behavior 1). The no-build ambition stands as an upstream
+   ask.
 3. The credential-guard path sends no final report (behavior 2); the
    experiment's contract could not express a skip in the final-report
    vocabulary, and two of four implementations had reported `succeeded`
