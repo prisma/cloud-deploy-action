@@ -24,7 +24,7 @@ jobs:
             const { readFileSync, existsSync } = require("node:fs");
             const src = readFileSync("action.yml", "utf8");
             const checks = [
-              ["name: Prisma Deploy", /^name: Prisma Deploy$/m],
+              ["name: Deploy to Prisma Cloud", /^name: Deploy to Prisma Cloud$/m],
               ["runs.using: node24", /^  using: node24$/m],
               ["runs.main: main.mjs", /^  main: main\.mjs$/m],
               ["runs.post: post.mjs", /^  post: post\.mjs$/m],

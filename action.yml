@@ -1,32 +1,32 @@
-name: Prisma Deploy
-description: Build, deploy or destroy with Prisma Composer, and report the attempt (reporting stubbed until the Builds API exists)
+name: Deploy to Prisma Cloud
+description: Build and deploy your app to Prisma Cloud from GitHub Actions
 inputs:
   build-command:
-    description: The repo's full build command, run verbatim (deploy mode only — destroy never builds)
+    description: Your build command, run verbatim in both modes
     default: npm run build
   install-command:
-    description: Empty = auto-detect from the lockfile (npm ci / bun install --frozen-lockfile)
+    description: Empty auto-detects from the lockfile (npm ci or bun install --frozen-lockfile)
     default: ""
   module:
-    description: Path to the Composer module
+    description: Path to your app's Composer module
     default: module.ts
   mode:
-    description: deploy | destroy
+    description: deploy or destroy
     default: deploy
   stage:
-    description: Empty = derive (default branch → production, otherwise the branch name)
+    description: Empty derives the stage from the branch (default branch deploys to production, any other branch name becomes the stage)
     default: ""
   composer-version:
-    description: Composer CLI version invoked via npx
+    description: The Composer CLI version the action invokes
     default: "0.6.0"
   working-directory:
-    description: Where install/build/deploy run
+    description: Where install, build, and deploy run
     default: "."
 outputs:
   outcome:
-    description: succeeded | failed | skipped-no-credential
+    description: succeeded, failed, or skipped-no-credential
   build-id:
-    description: Stub build id until the Builds API exists
+    description: The id the action reports its build under
 runs:
   using: node24
   main: main.mjs
