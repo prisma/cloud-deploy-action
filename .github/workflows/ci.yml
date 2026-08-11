@@ -18,18 +18,21 @@ jobs:
         run: |
           node --check main.mjs
           node --check post.mjs
+          node --check credentials.mjs
+      - name: Unit-test credential resolution
+        run: node --test tests/credentials.test.mjs
       - name: Sanity-check action.yml
         run: |
           node -e '
             const { readFileSync, existsSync } = require("node:fs");
             const src = readFileSync("action.yml", "utf8");
             const checks = [
-              ["name: Prisma Deploy", /^name: Prisma Deploy$/m],
+              ["name: Deploy to Prisma Cloud", /^name: Deploy to Prisma Cloud$/m],
               ["runs.using: node24", /^  using: node24$/m],
               ["runs.main: main.mjs", /^  main: main\.mjs$/m],
               ["runs.post: post.mjs", /^  post: post\.mjs$/m],
             ];
-            for (const name of ["build-command", "install-command", "module", "mode", "stage", "composer-version", "working-directory"]) {
+            for (const name of ["build-command", "install-command", "module", "mode", "stage", "composer-version", "working-directory", "api-url"]) {
               checks.push([`input ${name}`, new RegExp(`^  ${name}:$`, "m")]);
             }
             for (const name of ["outcome", "build-id"]) {
