@@ -6,9 +6,7 @@ The official GitHub Action for deploying to [Prisma Cloud](https://www.prisma.io
 
 ## Quick start
 
-1. In the [Prisma Console](https://console.prisma.io), create a service token for your workspace.
-2. In your repository settings, add the token as an Actions secret named `PRISMA_SERVICE_TOKEN`.
-3. Add the workflow:
+For a repository connected through the Prisma Console, no credential setup is needed: the action authenticates with the OIDC token GitHub mints for the run and exchanges it for a short-lived Prisma workspace token. Give each job `id-token: write` permission and add the workflow:
 
 ```yaml
 name: prisma-deploy
@@ -23,6 +21,7 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   deploy:
@@ -37,8 +36,6 @@ jobs:
       - uses: prisma/cloud-deploy-action@v1
         with:
           build-command: npm run build
-        env:
-          PRISMA_SERVICE_TOKEN: ${{ secrets.PRISMA_SERVICE_TOKEN }}
 
   teardown:
     # The delete event also fires for tags; only branch deletions map to a preview.
@@ -54,11 +51,23 @@ jobs:
         with:
           mode: destroy
           stage: ${{ github.event.ref }}
+```
+
+Connecting a repository through the Prisma Console creates this setup for you with a pull request.
+
+### Using a service token instead
+
+Repositories that are not connected in the Console can deploy with an explicit credential. Create a service token in the Console, add it as an Actions secret named `PRISMA_SERVICE_TOKEN`, and pass it to the action step:
+
+```yaml
+      - uses: prisma/cloud-deploy-action@v1
+        with:
+          build-command: npm run build
         env:
           PRISMA_SERVICE_TOKEN: ${{ secrets.PRISMA_SERVICE_TOKEN }}
 ```
 
-Connecting a repository through the Prisma Console creates this setup for you with a pull request.
+An explicit token always wins over the OIDC exchange.
 
 ## How it works
 
@@ -70,7 +79,7 @@ Deploy targets follow your branches:
 - A push to any other branch deploys to a preview stage named after the branch.
 - Deleting a branch destroys its preview stage.
 
-If `PRISMA_SERVICE_TOKEN` is missing, the run prints a notice, sets its `outcome` output to `skipped-no-credential`, and exits successfully without deploying. Forks and repositories without the secret keep a green CI.
+The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the environment wins; otherwise the action requests the run's GitHub OIDC token and exchanges it with Prisma for a workspace token that expires after 30 minutes. When neither path yields a credential, or the exchange refuses the repository, the run prints a notice, sets its `outcome` output to `skipped-no-credential`, and exits successfully without deploying. Forks and unconnected repositories keep a green CI. A failure of the exchange itself, such as an outage, fails the run instead of skipping it.
 
 ## Inputs
 
@@ -83,6 +92,7 @@ If `PRISMA_SERVICE_TOKEN` is missing, the run prints a notice, sets its `outcome
 | `stage` | derived | Empty derives the stage from the branch: the default branch deploys to production, any other branch name becomes the stage. `destroy` requires a resolved stage. |
 | `composer-version` | `0.6.0` | The Composer CLI version the action invokes. |
 | `working-directory` | `.` | Where install, build, and deploy run. |
+| `api-url` | `https://api.prisma.io` | Prisma API base URL for the OIDC credential exchange. |
 
 ## Outputs
 
@@ -99,8 +109,11 @@ The action reports build progress and outcomes so your deploys can show up in th
 
 - Keep the workflow on Node 22. prisma-composer 0.6.0 crashes on Node 24, even though the action itself runs on the runner's Node 24.
 - Install detection covers npm and bun lockfiles. Repositories using pnpm or yarn need an explicit `install-command`, and deploys are not tested against them yet.
+- Workflow runs triggered from forks receive no OIDC token from GitHub, so they skip deploying unless a `PRISMA_SERVICE_TOKEN` secret is provided.
 
 ## Security
+
+The OIDC exchange keeps long-lived credentials out of your repository. GitHub mints a signed token for the specific run, Prisma verifies it against GitHub's keys with a pinned `prisma-cloud` audience, matches the repository by its numeric id against the workspace's connection, and answers with a token that expires after 30 minutes. The minted token is masked in logs.
 
 Branch names reach the action as environment variables and are passed to the Composer CLI as single arguments without a shell, so branch names cannot inject commands. Your install and build commands are your own configuration and run through a shell exactly as written.
 

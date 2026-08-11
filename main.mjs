@@ -5,6 +5,7 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { resolveCredential } from "./credentials.mjs";
 
 // Synchronous stdout keeps ::group:: markers ordered around child output:
 // spawnSync blocks the event loop, so buffered async writes would flush late.
@@ -127,17 +128,33 @@ runPhase("install", installCommand);
 // health; composer does not allow that today.
 runPhase("build", input("build-command") || "npm run build");
 
-// The credential guard: everything past this point needs the secret. In
-// repos without it (fixtures), the run ends here, green. No final report is
-// sent — a run without the credential could not authenticate to the real
-// reporting API either; the saved state keeps post.mjs quiet.
-if (!(process.env.PRISMA_SERVICE_TOKEN ?? "").trim()) {
-  log(
-    `::notice title=${mode} skipped, no credential::PRISMA_SERVICE_TOKEN is not set, so the action cannot ${mode}. ` +
-      "Add it as an Actions repository secret (Settings > Secrets and variables > Actions) and pass it to this step via env.",
-  );
+// The credential guard: everything past this point needs a credential. An
+// explicit PRISMA_SERVICE_TOKEN wins; a connected repository exchanges its
+// GitHub OIDC token instead. Runs with no credential path end here, green.
+// No final report is sent; the saved state keeps post.mjs quiet.
+const apiUrl = input("api-url") || "https://api.prisma.io";
+const credential = await (async () => {
+  try {
+    return await resolveCredential(process.env, apiUrl);
+  } catch (error) {
+    // Transient exchange failures are real errors, never a quiet skip: a
+    // platform outage must not look like a repository without a credential.
+    fail("credential", error.message);
+  }
+})();
+if (credential.source === "none" || credential.denied) {
+  const remedy = credential.denied
+    ? "This repository is not connected to a Prisma workspace. Connect it in the Prisma Console, or set PRISMA_SERVICE_TOKEN as an Actions secret."
+    : "Connect the repository in the Prisma Console and grant this job `permissions: id-token: write`, or set PRISMA_SERVICE_TOKEN as an Actions secret.";
+  log(`::notice title=${mode} skipped, no credential::The action cannot ${mode} without a credential. ${remedy}`);
   finish("skipped-no-credential");
   process.exit(0);
+}
+if (credential.source === "oidc") {
+  log(`::add-mask::${credential.token}`);
+  process.env.PRISMA_SERVICE_TOKEN = credential.token;
+  process.env.PRISMA_WORKSPACE_ID = credential.workspaceId;
+  log("credential: short-lived workspace token via GitHub OIDC");
 }
 
 // The stage reaches the argv array straight from the environment; it is

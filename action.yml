@@ -22,6 +22,9 @@ inputs:
   working-directory:
     description: Where install, build, and deploy run
     default: "."
+  api-url:
+    description: Prisma API base URL for the OIDC credential exchange
+    default: https://api.prisma.io
 outputs:
   outcome:
     description: succeeded, failed, or skipped-no-credential
