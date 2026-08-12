@@ -1,11 +1,11 @@
 // prisma/cloud-deploy-action: install, build, and deploy (or destroy) a
-// Prisma Composer app, reporting the attempt. Interface and behaviors are
-// frozen by ./README.md; reporting is a logged stub until the Builds API
-// exists.
+// Prisma Composer app, reporting the attempt to the Builds API when a
+// credential is available. Interface and behaviors are frozen by ./README.md.
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { resolveCredential } from "./credentials.mjs";
+import { guardReport, makeReporter, mapPhase } from "./report.mjs";
 
 // Synchronous stdout keeps ::group:: markers ordered around child output:
 // spawnSync blocks the event loop, so buffered async writes would flush late.
@@ -15,31 +15,62 @@ const input = (name) => (process.env[`INPUT_${name.toUpperCase()}`] ?? "").trim(
 const setOutput = (name, value) => appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
 const saveState = (name, value) => appendFileSync(process.env.GITHUB_STATE, `${name}=${value}\n`);
 
-const buildId = `build_stub_${process.env.GITHUB_RUN_ID}`;
+const STUB_BUILD_ID = `build_stub_${process.env.GITHUB_RUN_ID}`;
 
-/** Stub of the future Builds API client: logs the exact JSON it would send. */
-function report(kind, payload) {
-  log(`[report-stub] ${kind}: ${JSON.stringify(payload)}`);
-  return { id: buildId };
-}
+let reporter = null;
+let buildId = null;
+let firstPhaseReported = false;
 
-// Records the terminal outcome. post.mjs reports `interrupted` only when no
-// outcome ever lands in the saved state.
 function finish(outcome) {
   setOutput("outcome", outcome);
   saveState("finalOutcome", outcome);
 }
 
-function fail(failingStep, error) {
-  report("final", { outcome: "failed", failingStep, error });
+async function reportUpdate(patch, label) {
+  // guardReport returns null on failure (it already logged a warning).
+  // update() returns void on success, so a non-null result means succeeded.
+  const result = await guardReport(() => reporter.update(buildId, patch), label, log);
+  if (result !== null) log(`report: ${label}`);
+}
+
+// Fails after a build report has been created: sends a failure state update,
+// records the outcome, then exits non-zero.
+async function fail(failingStep, errorText) {
+  if (reporter && buildId) {
+    const result = await guardReport(
+      () =>
+        reporter.update(buildId, {
+          state: "failed",
+          failingStep: failingStep.slice(0, 500),
+          errorMessage: errorText.slice(0, 5000),
+        }),
+      "failed",
+      log,
+    );
+    if (result !== null) log("report: failed");
+  }
   finish("failed");
-  log(`::error::${failingStep} failed: ${error}`);
+  log(`::error::${failingStep} failed: ${errorText}`);
   process.exit(1);
 }
 
-function runPhase(phase, command, args) {
+// Fails before any build report exists: no API call, just exit.
+function failEarly(failingStep, errorText) {
+  finish("failed");
+  log(`::error::${failingStep} failed: ${errorText}`);
+  process.exit(1);
+}
+
+async function runPhase(phase, command, args) {
+  const serverPhase = mapPhase(phase);
   log(`::group::${phase}`);
-  report("phase", { phase });
+  if (reporter && buildId) {
+    const patch = firstPhaseReported
+      ? { phase: serverPhase }
+      : { phase: serverPhase, state: "running" };
+    firstPhaseReported = true;
+    await reportUpdate(patch, `phase ${serverPhase}`);
+  }
   const printable = args ? [command, ...args].join(" ") : command;
   log(`$ ${printable}`);
   // String commands come from the consuming repo's own workflow inputs and
@@ -55,7 +86,7 @@ function runPhase(phase, command, args) {
       (result.signal
         ? `${printable} was terminated by ${result.signal}`
         : `${printable} exited with status ${result.status}`);
-    fail(phase, error);
+    await fail(phase, error);
   }
 }
 
@@ -69,18 +100,8 @@ const runUrl = `${process.env.GITHUB_SERVER_URL ?? "https://github.com"}/${repos
 
 log(`prisma-deploy: mode=${mode} module=${modulePath} composer=${composerVersion} working-directory=${workdir}`);
 
-report("create", {
-  repository,
-  commitSha: process.env.GITHUB_SHA ?? "",
-  branch,
-  runUrl,
-  reporter: "github-action",
-});
-setOutput("build-id", buildId);
-saveState("buildId", buildId);
-
 if (mode !== "deploy" && mode !== "destroy") {
-  fail("config", `unknown mode "${mode}" (expected "deploy" or "destroy")`);
+  failEarly("config", `unknown mode "${mode}" (expected "deploy" or "destroy")`);
 }
 
 const defaultBranch = (() => {
@@ -96,10 +117,10 @@ const defaultBranch = (() => {
 // other branch deploys to a stage named after it.
 const stage = input("stage") || (branch === defaultBranch ? "" : branch);
 if (!input("stage") && !branch) {
-  fail("config", "cannot derive a stage: the event context has no branch; set the stage input");
+  failEarly("config", "cannot derive a stage: the event context has no branch; set the stage input");
 }
 if (mode === "destroy" && !stage) {
-  fail(
+  failEarly(
     "config",
     "destroy refuses to run without a resolved stage; the default branch derives to production, so pass the stage input explicitly",
   );
@@ -113,49 +134,84 @@ const installCommand = (() => {
     return "bun install --frozen-lockfile";
   }
   if (existsSync(join(workdir, "package-lock.json"))) return "npm ci";
-  fail(
+  return null;
+})();
+if (!installCommand) {
+  failEarly(
     "install",
     `install-auto-detect-failed: no bun.lock, bun.lockb, or package-lock.json in ${workdir} (pnpm/yarn are out of scope); set the install-command input`,
   );
-})();
+}
 
-runPhase("install", installCommand);
-
-// Destroy builds too, by composer's own requirement: "destroy evaluates the
-// same stack program as deploy, which packages the built artifacts — so the
-// app must be built first" (its error text on 0.6.0). We wanted destroy to
-// skip the build so teardown never depends on the default branch's build
-// health; composer does not allow that today.
-runPhase("build", input("build-command") || "npm run build");
-
-// The credential guard: everything past this point needs a credential. An
-// explicit PRISMA_SERVICE_TOKEN wins; a connected repository exchanges its
-// GitHub OIDC token instead. Runs with no credential path end here, green.
-// No final report is sent; the saved state keeps post.mjs quiet.
+// Credential guard: resolved before any reporting and before deploy. Runs
+// with no credential path skip reporting entirely and exit successfully without
+// deploying. A transient exchange failure (outage) fails the run instead of
+// skipping it.
 const apiUrl = input("api-url") || "https://api.prisma.io";
 const credential = await (async () => {
   try {
     return await resolveCredential(process.env, apiUrl);
   } catch (error) {
-    // Transient exchange failures are real errors, never a quiet skip: a
-    // platform outage must not look like a repository without a credential.
-    fail("credential", error.message);
+    finish("failed");
+    log(`::error::credential failed: ${error.message}`);
+    process.exit(1);
   }
 })();
+
 if (credential.source === "none" || credential.denied) {
   const remedy = credential.denied
     ? "This repository is not connected to a Prisma workspace. Connect it in the Prisma Console, or set PRISMA_SERVICE_TOKEN as an Actions secret."
     : "Connect the repository in the Prisma Console and grant this job `permissions: id-token: write`, or set PRISMA_SERVICE_TOKEN as an Actions secret.";
   log(`::notice title=${mode} skipped, no credential::The action cannot ${mode} without a credential. ${remedy}`);
+  setOutput("build-id", STUB_BUILD_ID);
   finish("skipped-no-credential");
   process.exit(0);
 }
+
 if (credential.source === "oidc") {
   log(`::add-mask::${credential.token}`);
   process.env.PRISMA_SERVICE_TOKEN = credential.token;
   process.env.PRISMA_WORKSPACE_ID = credential.workspaceId;
   log("credential: short-lived workspace token via GitHub OIDC");
 }
+
+reporter = makeReporter({ apiUrl, token: credential.token });
+
+// Create the build report. A failure here is a warning, not a deploy blocker.
+buildId = await guardReport(
+  () =>
+    reporter.create({
+      source: "ci",
+      commitSha: process.env.GITHUB_SHA ?? "",
+      branchName: branch,
+      runIdentity: {
+        provider: "github",
+        repositoryId: process.env.GITHUB_REPOSITORY_ID ?? "",
+        runId: process.env.GITHUB_RUN_ID ?? "",
+        runAttempt: parseInt(process.env.GITHUB_RUN_ATTEMPT ?? "1", 10),
+      },
+      externalLogUrl: runUrl,
+    }),
+  "create",
+  log,
+);
+
+if (buildId) {
+  log(`report: created ${buildId}`);
+  setOutput("build-id", buildId);
+  saveState("buildId", buildId);
+} else {
+  setOutput("build-id", STUB_BUILD_ID);
+}
+
+await runPhase("install", installCommand);
+
+// Destroy builds too, by composer's own requirement: "destroy evaluates the
+// same stack program as deploy, which packages the built artifacts — so the
+// app must be built first" (its error text on 0.6.0). We wanted destroy to
+// skip the build so teardown never depends on the default branch's build
+// health; composer does not allow that today.
+await runPhase("build", input("build-command") || "npm run build");
 
 // The stage reaches the argv array straight from the environment; it is
 // never interpolated into a shell string.
@@ -176,6 +232,9 @@ const composerArgs = [
     : ["destroy", modulePath, "--stage", stage]),
 ];
 
-runPhase(mode, composerCmd, composerArgs);
-report("final", { outcome: "succeeded" });
+await runPhase(mode, composerCmd, composerArgs);
+
+if (reporter && buildId) {
+  await reportUpdate({ state: "succeeded" }, "succeeded");
+}
 finish("succeeded");

@@ -99,11 +99,15 @@ The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the en
 | Output | Values |
 | --- | --- |
 | `outcome` | `succeeded`, `failed`, or `skipped-no-credential` |
-| `build-id` | The id the action reports its build under. |
+| `build-id` | The build id assigned by the Prisma API when reporting is active. Holds a stable placeholder value when the run has no credential, so downstream steps always receive a value. |
 
 ## Build status reporting
 
-The action reports build progress and outcomes so your deploys can show up in the Prisma Console. Transmission is under development: today each report is logged under `[report-stub]` lines instead of being sent, and the payload shapes are stable. If a run is cancelled mid-flight, a completion step records the attempt as `interrupted`.
+The action reports build progress and outcomes to the Prisma API so your deploys show up in the Prisma Console. Reporting is active when the run has a credential (service token or OIDC exchange). When no credential is available, no reports are sent.
+
+Progress phases map to two server-side labels: `build` and `deploy`. The install and build commands both fall under `build`; the Composer deploy or destroy step falls under `deploy`. Build states are `running` (stamped when the first phase starts), `succeeded`, `failed`, or `cancelled` (sent by the post step when the runner is interrupted mid-flight).
+
+When a run has no credential, no `[report-stub]` log lines appear; the run is silent on reporting.
 
 ## Known limitations
 
