@@ -4,8 +4,6 @@ import { deployedUrlFromOutput } from "../deployment.mjs";
 
 const ESC = String.fromCharCode(27);
 
-// A deploy report as Composer prints it: the app, its node tree, and the
-// deployed service's public address on its own indented line.
 const DEPLOY_REPORT = [
   "menu-board",
   "└─ menuboard   compute-service cps_wfzg31o86hblgngtaz2lh4mw",

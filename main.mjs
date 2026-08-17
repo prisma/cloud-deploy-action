@@ -77,13 +77,8 @@ async function runPhase(phase, command, args, capture = false) {
   // String commands come from the consuming repo's own workflow inputs and
   // run through a shell verbatim; argv arrays never touch a shell, so
   // event-controlled values like the stage name cannot inject.
-  //
-  // Capturing pipes stdout so the deploy report can be read for the preview
-  // URL; the buffered output is written back below, so the phase still appears
-  // in the log (as a block at phase end, not streamed). stderr stays inherited.
-  // The generous maxBuffer keeps a large-but-successful deploy from tripping the
-  // default 1 MB cap, which would surface as a spawn error and fail the deploy.
   const stdio = capture ? ["inherit", "pipe", "inherit"] : "inherit";
+  // maxBuffer raised so a large but successful deploy is not misreported as a spawn failure.
   const options = capture
     ? { cwd: workdir, stdio, maxBuffer: 64 * 1024 * 1024 }
     : { cwd: workdir, stdio };
@@ -249,9 +244,6 @@ const composerArgs = [
 const deployOutput = await runPhase(mode, composerCmd, composerArgs, mode === "deploy");
 
 if (reporter && buildId) {
-  // Fill the deployed preview URL from the deploy report so the Console can
-  // link the live preview. Destroy has no URL; a deploy that surfaced none
-  // reports the success alone. deployedUrl is fill-only on the Builds API.
   const deployedUrl = mode === "deploy" ? deployedUrlFromOutput(deployOutput) : null;
   await reportUpdate(
     deployedUrl ? { state: "succeeded", deployedUrl } : { state: "succeeded" },
