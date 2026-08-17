@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { resolveCredential } from "./credentials.mjs";
+import { deployedUrlFromOutput } from "./deployment.mjs";
 import { guardReport, makeReporter, mapPhase } from "./report.mjs";
 
 // Synchronous stdout keeps ::group:: markers ordered around child output:
@@ -61,7 +62,7 @@ function failEarly(failingStep, errorText) {
   process.exit(1);
 }
 
-async function runPhase(phase, command, args) {
+async function runPhase(phase, command, args, capture = false) {
   const serverPhase = mapPhase(phase);
   log(`::group::${phase}`);
   if (reporter && buildId) {
@@ -76,9 +77,16 @@ async function runPhase(phase, command, args) {
   // String commands come from the consuming repo's own workflow inputs and
   // run through a shell verbatim; argv arrays never touch a shell, so
   // event-controlled values like the stage name cannot inject.
+  const stdio = capture ? ["inherit", "pipe", "inherit"] : "inherit";
+  // maxBuffer raised so a large but successful deploy is not misreported as a spawn failure.
+  const options = capture
+    ? { cwd: workdir, stdio, maxBuffer: 64 * 1024 * 1024 }
+    : { cwd: workdir, stdio };
   const result = args
-    ? spawnSync(command, args, { cwd: workdir, stdio: "inherit" })
-    : spawnSync(command, { cwd: workdir, stdio: "inherit", shell: true });
+    ? spawnSync(command, args, options)
+    : spawnSync(command, { ...options, shell: true });
+  const captured = capture && result.stdout ? result.stdout.toString() : "";
+  if (captured) writeSync(1, captured);
   log("::endgroup::");
   if (result.status !== 0) {
     const error =
@@ -88,6 +96,7 @@ async function runPhase(phase, command, args) {
         : `${printable} exited with status ${result.status}`);
     await fail(phase, error);
   }
+  return captured;
 }
 
 const mode = input("mode") || "deploy";
@@ -232,9 +241,13 @@ const composerArgs = [
     : ["destroy", modulePath, "--stage", stage]),
 ];
 
-await runPhase(mode, composerCmd, composerArgs);
+const deployOutput = await runPhase(mode, composerCmd, composerArgs, mode === "deploy");
 
 if (reporter && buildId) {
-  await reportUpdate({ state: "succeeded" }, "succeeded");
+  const deployedUrl = mode === "deploy" ? deployedUrlFromOutput(deployOutput) : null;
+  await reportUpdate(
+    deployedUrl ? { state: "succeeded", deployedUrl } : { state: "succeeded" },
+    "succeeded",
+  );
 }
 finish("succeeded");
