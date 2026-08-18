@@ -17,8 +17,8 @@ inputs:
     description: Empty derives the stage from the branch (default branch deploys to production, any other branch name becomes the stage)
     default: ""
   composer-version:
-    description: The Composer CLI version the action invokes
-    default: "0.6.0"
+    description: The @prisma/composer-cli version the action fetches via npx when the repo has no local bin (0.7.0+); use @prisma/composer for 0.6.x
+    default: "0.7.0"
   working-directory:
     description: Where install, build, and deploy run
     default: "."
