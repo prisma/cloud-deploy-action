@@ -106,6 +106,8 @@ The action reports build progress and outcomes to the Prisma API so your deploys
 
 Progress phases map to two server-side labels: `build` and `deploy`. The install and build commands both fall under `build`; the Composer deploy or destroy step falls under `deploy`. Build states are `running` (stamped when the first phase starts), `succeeded`, `failed`, or `cancelled` (sent by the post step when the runner is interrupted mid-flight).
 
+On a successful deploy, the action also reports the deployed preview URL (`deployedUrl`) so the Console can link the live preview from the build. It reads the address — Composer's `https://<hash>.<region>.prisma.build` line — from the deploy report, anchored to the `.prisma.build` suffix; an app with several public services reports the first. Reporting the URL is best-effort like every other report: a missing address or a failed report call leaves the deploy successful.
+
 When a run has no credential, no `[report-stub]` log lines appear; the run is silent on reporting.
 
 ## Known limitations
@@ -113,6 +115,7 @@ When a run has no credential, no `[report-stub]` log lines appear; the run is si
 - Keep the workflow on Node 22. The Composer CLI has not been verified against Node 24, even though the action itself runs on the runner's Node 24.
 - Install detection covers npm and bun lockfiles. Repositories using pnpm or yarn need an explicit `install-command`, and deploys are not tested against them yet.
 - Workflow runs triggered from forks receive no OIDC token from GitHub, so they skip deploying unless a `PRISMA_SERVICE_TOKEN` secret is provided.
+- The deployed preview URL is read from Composer's human deploy output, because released Composer (0.6.0) does not expose it as data. When Composer emits the deploy result in a machine-readable form — a `--json` result carrying each deployed service's public URL — the action should read the URL from there rather than from the printed report.
 
 ## Security
 

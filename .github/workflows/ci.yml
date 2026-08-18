@@ -19,8 +19,8 @@ jobs:
           node --check main.mjs
           node --check post.mjs
           node --check credentials.mjs
-      - name: Unit-test credential resolution
-        run: node --test tests/credentials.test.mjs
+      - name: Unit-test the action scripts
+        run: node --test tests/*.test.mjs
       - name: Sanity-check action.yml
         run: |
           node -e '
