@@ -92,13 +92,13 @@ async function runPhase(phase, command, args) {
 
 const mode = input("mode") || "deploy";
 const modulePath = input("module") || "module.ts";
-const composerVersion = input("composer-version") || "0.6.0";
+const composerVersion = input("composer-version") || "0.7.0";
 const workdir = resolve(process.env.GITHUB_WORKSPACE ?? ".", input("working-directory") || ".");
 const repository = process.env.GITHUB_REPOSITORY ?? "";
 const branch = process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || "";
 const runUrl = `${process.env.GITHUB_SERVER_URL ?? "https://github.com"}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`;
 
-log(`prisma-deploy: mode=${mode} module=${modulePath} composer=${composerVersion} working-directory=${workdir}`);
+log(`prisma-deploy: mode=${mode} module=${modulePath} working-directory=${workdir}`);
 
 if (mode !== "deploy" && mode !== "destroy") {
   failEarly("config", `unknown mode "${mode}" (expected "deploy" or "destroy")`);
@@ -216,15 +216,16 @@ await runPhase("build", input("build-command") || "npm run build");
 // The stage reaches the argv array straight from the environment; it is
 // never interpolated into a shell string.
 //
-// The CLI bin is named prisma-composer but ships inside @prisma/composer;
-// there is no npm package named prisma-composer, so `npx prisma-composer@v`
-// 404s. The repo's own install already provides the bin (the packages are in
-// its dependencies), so prefer the local bin; fall back to fetching the
-// pinned package only when the repo does not carry it.
+// The CLI bin is named prisma-composer. From 0.7.0 it ships inside
+// @prisma/composer-cli (previously @prisma/composer); there is no npm package
+// named prisma-composer, so `npx prisma-composer@v` 404s. The repo's own
+// install already provides the bin, so prefer the local bin; fall back to
+// fetching the pinned package only when the repo does not carry it.
 const localBin = join(workdir, "node_modules", ".bin", "prisma-composer");
 const [composerCmd, composerLead] = existsSync(localBin)
   ? [localBin, []]
-  : ["npx", [`--package=@prisma/composer@${composerVersion}`, "prisma-composer"]];
+  : ["npx", [`--package=@prisma/composer-cli@${composerVersion}`, "prisma-composer"]];
+log(composerCmd === localBin ? "composer=local bin" : `composer=${composerVersion} (npx fallback)`);
 const composerArgs = [
   ...composerLead,
   ...(mode === "deploy"
