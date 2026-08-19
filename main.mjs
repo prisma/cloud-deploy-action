@@ -4,6 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { selectComposerCommand } from "./composer.mjs";
 import { resolveCredential } from "./credentials.mjs";
 import { deployedUrlFromOutput } from "./deployment.mjs";
 import { guardReport, makeReporter, mapPhase } from "./report.mjs";
@@ -136,6 +137,16 @@ if (mode === "destroy" && !stage) {
 }
 log(stage ? `${mode} target: --stage ${stage}` : `${mode} target: production (default branch, no --stage)`);
 
+// Bun is required: composer runs under Bun, not Node. The generated Prisma
+// deploy workflow adds `oven-sh/setup-bun@v2` for every project.
+const bunVersionCheck = spawnSync("bun", ["--version"], { stdio: "pipe" });
+if (bunVersionCheck.error?.code === "ENOENT") {
+  failEarly(
+    "config",
+    "bun not found on PATH: add `- uses: oven-sh/setup-bun@v2` before this action step; the generated Prisma deploy workflow includes this automatically",
+  );
+}
+
 const installCommand = (() => {
   const explicit = input("install-command");
   if (explicit) return explicit;
@@ -228,13 +239,15 @@ await runPhase("build", input("build-command") || "npm run build");
 // The CLI bin is named prisma-composer. From 0.7.0 it ships inside
 // @prisma/composer-cli (previously @prisma/composer); there is no npm package
 // named prisma-composer, so `npx prisma-composer@v` 404s. The repo's own
-// install already provides the bin, so prefer the local bin; fall back to
-// fetching the pinned package only when the repo does not carry it.
+// install already provides the bin, so prefer the local bin under Bun; fall
+// back to bunx fetching the pinned package when the repo does not carry it.
 const localBin = join(workdir, "node_modules", ".bin", "prisma-composer");
-const [composerCmd, composerLead] = existsSync(localBin)
-  ? [localBin, []]
-  : ["npx", [`--package=@prisma/composer-cli@${composerVersion}`, "prisma-composer"]];
-log(composerCmd === localBin ? "composer=local bin" : `composer=${composerVersion} (npx fallback)`);
+const [composerCmd, composerLead, composerLabel] = selectComposerCommand(
+  localBin,
+  composerVersion,
+  existsSync(localBin),
+);
+log(composerLabel);
 const composerArgs = [
   ...composerLead,
   ...(mode === "deploy"

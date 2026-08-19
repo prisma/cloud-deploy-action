@@ -32,6 +32,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+      - uses: oven-sh/setup-bun@v2
       - uses: prisma/cloud-deploy-action@v1
         with:
           build-command: npm run build
@@ -46,6 +48,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+      - uses: oven-sh/setup-bun@v2
       - uses: prisma/cloud-deploy-action@v1
         with:
           mode: destroy
@@ -70,7 +74,7 @@ An explicit token always wins over the OIDC exchange.
 
 ## How it works
 
-Each run has three phases: install, build, and deploy. Your workflow owns checkout and the toolchain. The action runs your install and build commands exactly as configured, and it never inspects your repository to decide how to build. The deploy phase hands your built app to the [Prisma Composer](https://github.com/prisma/composer) CLI.
+Each run has three phases: install, build, and deploy. Your workflow owns checkout and the toolchain. The action runs your install and build commands exactly as configured, and it never inspects your repository to decide how to build. The deploy phase hands your built app to the [Prisma Composer](https://github.com/prisma/composer) CLI, running it under Bun. Bun must be on the runner PATH — add `oven-sh/setup-bun@v2` before this action. The generated Prisma deploy workflow includes that step automatically.
 
 Deploy targets follow your branches:
 
@@ -89,7 +93,7 @@ The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the en
 | `module` | `module.ts` | Path to your app's Composer module. |
 | `mode` | `deploy` | `deploy` or `destroy`. |
 | `stage` | derived | Empty derives the stage from the branch: the default branch deploys to production, any other branch name becomes the stage. `destroy` requires a resolved stage. |
-| `composer-version` | `0.7.0` | The Composer CLI version the action fetches via npx when the repo has no local bin. From 0.7.0 the bin ships in `@prisma/composer-cli`; set to a `0.6.x` value only if you need the old package. |
+| `composer-version` | `0.7.0` | The Composer CLI version the action fetches via bunx when the repo has no local bin. From 0.7.0 the bin ships in `@prisma/composer-cli`; set to a `0.6.x` value only if you need the old package. |
 | `working-directory` | `.` | Where install, build, and deploy run. |
 | `api-url` | `https://api.prisma.io` | Prisma API base URL for the OIDC credential exchange. |
 
@@ -110,9 +114,12 @@ On a successful deploy, the action also reports the deployed preview URL (`deplo
 
 When a run has no credential, no `[report-stub]` log lines appear; the run is silent on reporting.
 
+## Requirements
+
+Bun must be on the runner PATH. Add `oven-sh/setup-bun@v2` before this action step. The generated Prisma deploy workflow adds this step for every project.
+
 ## Known limitations
 
-- Keep the workflow on Node 22. The Composer CLI has not been verified against Node 24, even though the action itself runs on the runner's Node 24.
 - Install detection covers npm and bun lockfiles. Repositories using pnpm or yarn need an explicit `install-command`, and deploys are not tested against them yet.
 - Workflow runs triggered from forks receive no OIDC token from GitHub, so they skip deploying unless a `PRISMA_SERVICE_TOKEN` secret is provided.
 - The deployed preview URL is read from Composer's human deploy output, because released Composer (0.6.0) does not expose it as data. When Composer emits the deploy result in a machine-readable form — a `--json` result carrying each deployed service's public URL — the action should read the URL from there rather than from the printed report.
