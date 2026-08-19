@@ -243,7 +243,6 @@ await runPhase("build", input("build-command") || "npm run build");
 // back to bunx fetching the pinned package when the repo does not carry it.
 const localBin = join(workdir, "node_modules", ".bin", "prisma-composer");
 const [composerCmd, composerLead, composerLabel] = selectComposerCommand(
-  localBin,
   composerVersion,
   existsSync(localBin),
 );
