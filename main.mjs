@@ -245,11 +245,7 @@ if (buildCommand === null) {
 // The stage reaches the argv array straight from the environment; it is
 // never interpolated into a shell string.
 //
-// Composer ships inside the unified `prisma` CLI as the `composer` command
-// family. Prefer the repo's own installed CLI; the bunx fallback keeps
-// repositories generated before `prisma` became the devDependency deploying —
-// they pin @prisma/composer-cli, carry no `prisma` bin, and their config has
-// no `orm` section, which the unified CLI reads the same way.
+// The bunx fallback covers repositories without a prisma devDependency.
 const localBin = join(workdir, "node_modules", ".bin", "prisma");
 const composerArgs =
   mode === "deploy"
