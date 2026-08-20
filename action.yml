@@ -2,7 +2,7 @@ name: Deploy to Prisma Cloud
 description: Build and deploy your app to Prisma Cloud from GitHub Actions
 inputs:
   build-command:
-    description: Your build command, run verbatim in both modes
+    description: Your build command, run verbatim in both modes; the exact value "none" skips the build phase
     default: npm run build
   install-command:
     description: Empty auto-detects from the lockfile (npm ci or bun install --frozen-lockfile)
