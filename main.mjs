@@ -4,6 +4,7 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { selectBuildCommand } from "./build.mjs";
 import { selectComposerCommand } from "./composer.mjs";
 import { resolveCredential } from "./credentials.mjs";
 import { deployedUrlFromOutput } from "./deployment.mjs";
@@ -230,8 +231,16 @@ await runPhase("install", installCommand);
 // same stack program as deploy, which packages the built artifacts — so the
 // app must be built first" (its error text on 0.6.0). We wanted destroy to
 // skip the build so teardown never depends on the default branch's build
-// health; composer does not allow that today.
-await runPhase("build", input("build-command") || "npm run build");
+// health; composer does not allow that today. `build-command: none` is
+// different: the app has no build step at all, so both modes skip the phase.
+const buildCommand = selectBuildCommand(input("build-command"));
+if (buildCommand === null) {
+  // Install already reported the server-side "build" phase (mapPhase sends
+  // install as "build"), so the skip needs no report update of its own.
+  log("build: skipped (build-command: none)");
+} else {
+  await runPhase("build", buildCommand);
+}
 
 // The stage reaches the argv array straight from the environment; it is
 // never interpolated into a shell string.

@@ -74,7 +74,7 @@ An explicit token always wins over the OIDC exchange.
 
 ## How it works
 
-Each run has three phases: install, build, and deploy. Your workflow owns checkout and the toolchain. The action runs your install and build commands exactly as configured, and it never inspects your repository to decide how to build. The deploy phase hands your built app to the [Prisma Composer](https://github.com/prisma/composer) CLI, running it under Bun. Bun must be on the runner PATH — add `oven-sh/setup-bun@v2` before this action. The generated Prisma deploy workflow includes that step automatically.
+Each run has three phases: install, build, and deploy. Your workflow owns checkout and the toolchain. The action runs your install and build commands exactly as configured, and it never inspects your repository to decide how to build. A repository with no build script — one that runs its source directly — sets `build-command: none` to skip the build phase. The deploy phase hands your built app to the [Prisma Composer](https://github.com/prisma/composer) CLI, running it under Bun. Bun must be on the runner PATH — add `oven-sh/setup-bun@v2` before this action. The generated Prisma deploy workflow includes that step automatically.
 
 Deploy targets follow your branches:
 
@@ -88,7 +88,7 @@ The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the en
 
 | Input | Default | Description |
 | --- | --- | --- |
-| `build-command` | `npm run build` | Your build command, run verbatim. It runs in both modes, because destroy evaluates the built app to know what to remove. |
+| `build-command` | `npm run build` | Your build command, run verbatim. It runs in both modes, because destroy evaluates the built app to know what to remove. The exact value `none` skips the build phase in both modes, for repositories with no build script; an empty value keeps the default. |
 | `install-command` | auto | Detected from the lockfile: `npm ci` for `package-lock.json`, `bun install --frozen-lockfile` for a bun lockfile. Set this to override. pnpm and yarn are not supported yet. |
 | `module` | `module.ts` | Path to your app's Composer module. |
 | `mode` | `deploy` | `deploy` or `destroy`. |
