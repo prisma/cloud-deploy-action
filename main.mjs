@@ -245,7 +245,6 @@ if (buildCommand === null) {
 // The stage reaches the argv array straight from the environment; it is
 // never interpolated into a shell string.
 //
-// The bunx fallback covers repositories without a prisma devDependency.
 const localBin = join(workdir, "node_modules", ".bin", "prisma");
 const composerArgs =
   mode === "deploy"

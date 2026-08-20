@@ -1,6 +1,7 @@
 /**
  * Returns [cmd, args, logLabel] for running the Composer command family of
- * the unified `prisma` CLI under Bun.
+ * the unified `prisma` CLI under Bun. The bunx fallback covers repositories
+ * without a `prisma` devDependency.
  *
  * The local bin runs as `bun run --bun prisma`, not `bun <path>`: `--bun`
  * puts a `node` → bun shim first on PATH, so the CLI and the converge child
