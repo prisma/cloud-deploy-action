@@ -19,9 +19,6 @@ inputs:
   prisma-version:
     description: The prisma package version the action fetches via bunx, as a fallback for repositories that do not carry the prisma devDependency; the default is a placeholder that must be bumped to the first prisma release embedding Composer 0.11 before this ships
     default: "8.0.0-rc.6"
-  composer-version:
-    description: "Deprecated and ignored: the action always runs the unified prisma CLI; pin the bunx fallback with prisma-version instead"
-    default: "0.7.0"
   working-directory:
     description: Where install, build, and deploy run
     default: "."
