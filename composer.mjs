@@ -9,9 +9,17 @@
  *
  * @param {string} composerVersion - @prisma/composer-cli version to fetch via bunx when the local bin is absent.
  * @param {boolean} binExists - Whether node_modules/.bin/prisma-composer exists in the working directory.
+ * @param {boolean} unifiedCliAvailable - Whether the local Prisma CLI mounts the Composer command family.
  * @returns {[string, string[], string]}
  */
-export function selectComposerCommand(composerVersion, binExists) {
+export function selectComposerCommand(composerVersion, binExists, unifiedCliAvailable) {
+  if (unifiedCliAvailable) {
+    return [
+      "bun",
+      ["run", "--bun", "prisma", "composer"],
+      "composer=local Prisma CLI (bun run --bun)",
+    ];
+  }
   if (binExists) {
     return ["bun", ["run", "--bun", "prisma-composer"], "composer=local bin (bun run --bun)"];
   }

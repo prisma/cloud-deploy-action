@@ -245,15 +245,20 @@ if (buildCommand === null) {
 // The stage reaches the argv array straight from the environment; it is
 // never interpolated into a shell string.
 //
-// The CLI bin is named prisma-composer. From 0.7.0 it ships inside
-// @prisma/composer-cli (previously @prisma/composer); there is no npm package
-// named prisma-composer, so `npx prisma-composer@v` 404s. The repo's own
-// install already provides the bin, so prefer the local bin under Bun; fall
-// back to bunx fetching the pinned package when the repo does not carry it.
+// The unified Prisma CLI accepts every registered prisma.config.ts section,
+// which lets ORM and Composer share one config file.
+const localPrismaBin = join(workdir, "node_modules", ".bin", "prisma");
+const unifiedCliAvailable =
+  existsSync(localPrismaBin) &&
+  spawnSync("bun", ["run", "--bun", "prisma", "composer", "--help"], {
+    cwd: workdir,
+    stdio: "ignore",
+  }).status === 0;
 const localBin = join(workdir, "node_modules", ".bin", "prisma-composer");
 const [composerCmd, composerLead, composerLabel] = selectComposerCommand(
   composerVersion,
   existsSync(localBin),
+  unifiedCliAvailable,
 );
 log(composerLabel);
 const composerArgs = [
