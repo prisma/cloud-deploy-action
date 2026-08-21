@@ -16,9 +16,9 @@ inputs:
   stage:
     description: Empty derives the stage from the branch (default branch deploys to production, any other branch name becomes the stage)
     default: ""
-  composer-version:
-    description: The @prisma/composer-cli version the action fetches via bunx when the repo has no local bin (0.7.0+); use @prisma/composer for 0.6.x
-    default: "0.7.0"
+  prisma-version:
+    description: The prisma package version the action fetches via bunx, as a fallback for repositories that do not carry the prisma devDependency
+    default: "8.0.0-rc.7"
   working-directory:
     description: Where install, build, and deploy run
     default: "."

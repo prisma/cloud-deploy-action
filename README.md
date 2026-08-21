@@ -74,7 +74,7 @@ An explicit token always wins over the OIDC exchange.
 
 ## How it works
 
-Each run has three phases: install, build, and deploy. Your workflow owns checkout and the toolchain. The action runs your install and build commands exactly as configured, and it never inspects your repository to decide how to build. A repository with no build script — one that runs its source directly — sets `build-command: none` to skip the build phase. The deploy phase hands your built app to the [Prisma Composer](https://github.com/prisma/composer) CLI, running it under Bun. Bun must be on the runner PATH — add `oven-sh/setup-bun@v2` before this action. The generated Prisma deploy workflow includes that step automatically.
+Each run has three phases: install, build, and deploy. Your workflow owns checkout and the toolchain. The action runs your install and build commands exactly as configured, and it never inspects your repository to decide how to build. A repository with no build script — one that runs its source directly — sets `build-command: none` to skip the build phase. The deploy phase hands your built app to the Composer commands of the unified [`prisma` CLI](https://www.npmjs.com/package/prisma), running it under Bun. Repositories with a `prisma` devDependency deploy with their own installed version; everything else uses the pinned `prisma-version` fallback fetched via bunx. Bun must be on the runner PATH — add `oven-sh/setup-bun@v2` before this action. The generated Prisma deploy workflow includes that step automatically.
 
 Deploy targets follow your branches:
 
@@ -93,7 +93,7 @@ The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the en
 | `module` | `module.ts` | Path to your app's Composer module. |
 | `mode` | `deploy` | `deploy` or `destroy`. |
 | `stage` | derived | Empty derives the stage from the branch: the default branch deploys to production, any other branch name becomes the stage. `destroy` requires a resolved stage. |
-| `composer-version` | `0.7.0` | The Composer CLI version the action fetches via bunx when the repo has no local bin. From 0.7.0 the bin ships in `@prisma/composer-cli`; set to a `0.6.x` value only if you need the old package. |
+| `prisma-version` | `8.0.0-rc.7` | The `prisma` package version the action fetches via bunx — the fallback for repositories that do not carry the `prisma` devDependency. Repositories that do carry it deploy with their own installed version. |
 | `working-directory` | `.` | Where install, build, and deploy run. |
 | `api-url` | `https://api.prisma.io` | Prisma API base URL for the OIDC credential exchange. |
 

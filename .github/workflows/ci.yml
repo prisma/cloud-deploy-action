@@ -32,7 +32,7 @@ jobs:
               ["runs.main: main.mjs", /^  main: main\.mjs$/m],
               ["runs.post: post.mjs", /^  post: post\.mjs$/m],
             ];
-            for (const name of ["build-command", "install-command", "module", "mode", "stage", "composer-version", "working-directory", "api-url"]) {
+            for (const name of ["build-command", "install-command", "module", "mode", "stage", "prisma-version", "working-directory", "api-url"]) {
               checks.push([`input ${name}`, new RegExp(`^  ${name}:$`, "m")]);
             }
             for (const name of ["outcome", "build-id"]) {

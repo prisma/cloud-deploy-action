@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { selectBuildCommand } from "./build.mjs";
-import { selectComposerCommand } from "./composer.mjs";
+import { selectPrismaCliCommand } from "./cli.mjs";
 import { resolveCredential } from "./credentials.mjs";
 import { deployedUrlFromOutput } from "./deployment.mjs";
 import { guardReport, makeReporter, mapPhase } from "./report.mjs";
@@ -103,7 +103,7 @@ async function runPhase(phase, command, args, capture = false) {
 
 const mode = input("mode") || "deploy";
 const modulePath = input("module") || "module.ts";
-const composerVersion = input("composer-version") || "0.7.0";
+const prismaVersion = input("prisma-version") || "8.0.0-rc.7";
 const workdir = resolve(process.env.GITHUB_WORKSPACE ?? ".", input("working-directory") || ".");
 const repository = process.env.GITHUB_REPOSITORY ?? "";
 const branch = process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || "";
@@ -245,25 +245,19 @@ if (buildCommand === null) {
 // The stage reaches the argv array straight from the environment; it is
 // never interpolated into a shell string.
 //
-// The CLI bin is named prisma-composer. From 0.7.0 it ships inside
-// @prisma/composer-cli (previously @prisma/composer); there is no npm package
-// named prisma-composer, so `npx prisma-composer@v` 404s. The repo's own
-// install already provides the bin, so prefer the local bin under Bun; fall
-// back to bunx fetching the pinned package when the repo does not carry it.
-const localBin = join(workdir, "node_modules", ".bin", "prisma-composer");
-const [composerCmd, composerLead, composerLabel] = selectComposerCommand(
-  composerVersion,
-  existsSync(localBin),
-);
-log(composerLabel);
-const composerArgs = [
-  ...composerLead,
-  ...(mode === "deploy"
+const localBin = join(workdir, "node_modules", ".bin", "prisma");
+const composerArgs =
+  mode === "deploy"
     ? ["deploy", modulePath, ...(stage ? ["--stage", stage] : [])]
-    : ["destroy", modulePath, "--stage", stage]),
-];
+    : ["destroy", modulePath, "--stage", stage];
+const [cliCmd, cliArgs, cliLabel] = selectPrismaCliCommand(
+  prismaVersion,
+  existsSync(localBin),
+  composerArgs,
+);
+log(cliLabel);
 
-const deployOutput = await runPhase(mode, composerCmd, composerArgs, mode === "deploy");
+const deployOutput = await runPhase(mode, cliCmd, cliArgs, mode === "deploy");
 
 if (reporter && buildId) {
   const deployedUrl = mode === "deploy" ? deployedUrlFromOutput(deployOutput) : null;
