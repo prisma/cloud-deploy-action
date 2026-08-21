@@ -93,7 +93,7 @@ The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the en
 | `module` | `module.ts` | Path to your app's Composer module. |
 | `mode` | `deploy` | `deploy` or `destroy`. |
 | `stage` | derived | Empty derives the stage from the branch: the default branch deploys to production, any other branch name becomes the stage. `destroy` requires a resolved stage. |
-| `prisma-version` | `8.0.0-rc.6` | The `prisma` package version the action fetches via bunx — the fallback for repositories that do not carry the `prisma` devDependency. Repositories that do carry it deploy with their own installed version. |
+| `prisma-version` | `8.0.0-rc.7` | The `prisma` package version the action fetches via bunx — the fallback for repositories that do not carry the `prisma` devDependency. Repositories that do carry it deploy with their own installed version. |
 | `working-directory` | `.` | Where install, build, and deploy run. |
 | `api-url` | `https://api.prisma.io` | Prisma API base URL for the OIDC credential exchange. |
 

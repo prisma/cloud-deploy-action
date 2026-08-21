@@ -103,7 +103,7 @@ async function runPhase(phase, command, args, capture = false) {
 
 const mode = input("mode") || "deploy";
 const modulePath = input("module") || "module.ts";
-const prismaVersion = input("prisma-version") || "8.0.0-rc.6";
+const prismaVersion = input("prisma-version") || "8.0.0-rc.7";
 const workdir = resolve(process.env.GITHUB_WORKSPACE ?? ".", input("working-directory") || ".");
 const repository = process.env.GITHUB_REPOSITORY ?? "";
 const branch = process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || "";
