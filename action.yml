@@ -18,7 +18,7 @@ inputs:
     default: ""
   prisma-version:
     description: The prisma package version the action fetches via bunx, as a fallback for repositories that do not carry the prisma devDependency
-    default: "8.0.0-rc.7"
+    default: "8.0.0-rc.9"
   working-directory:
     description: Where install, build, and deploy run
     default: "."
