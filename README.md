@@ -39,6 +39,7 @@ jobs:
           build-command: npm run build
 
   teardown:
+    # NOTE: destroy currently fails against the current CLI — see Known limitations.
     # The delete event also fires for tags; only branch deletions map to a preview.
     if: github.event_name == 'delete' && github.event.ref_type == 'branch'
     runs-on: ubuntu-latest
@@ -74,13 +75,13 @@ An explicit token always wins over the OIDC exchange.
 
 ## How it works
 
-Each run has three phases: install, build, and deploy. Your workflow owns checkout and the toolchain. The action runs your install and build commands exactly as configured, and it never inspects your repository to decide how to build. A repository with no build script — one that runs its source directly — sets `build-command: none` to skip the build phase. The deploy phase hands your built app to the Composer commands of the unified [`prisma` CLI](https://www.npmjs.com/package/prisma), running it under Bun. Repositories with a `prisma` devDependency deploy with their own installed version; everything else uses the pinned `prisma-version` fallback fetched via bunx. Bun must be on the runner PATH — add `oven-sh/setup-bun@v2` before this action. The generated Prisma deploy workflow includes that step automatically.
+Each run has three phases: install, build, and deploy. Your workflow owns checkout and the toolchain. The action runs your install and build commands exactly as configured, and it never inspects your repository to decide how to build. A repository with no build script — one that runs its source directly — sets `build-command: none` to skip the build phase. The deploy phase hands your built app to the top-level `deploy` command of the unified [`prisma` CLI](https://www.npmjs.com/package/prisma) (`prisma deploy`, since `8.0.0-rc.8`; earlier versions used the removed `prisma composer` prefix and are not supported), running it under Bun. Repositories with a `prisma` devDependency deploy with their own installed version; everything else uses the pinned `prisma-version` fallback fetched via bunx. Bun `1.3.10` or newer must be on the runner PATH — add `oven-sh/setup-bun@v2` before this action (it installs the latest by default). The generated Prisma deploy workflow includes that step automatically.
 
 Deploy targets follow your branches:
 
 - A push to the default branch deploys to production.
 - A push to any other branch deploys to a preview stage named after the branch.
-- Deleting a branch destroys its preview stage.
+- Deleting a branch destroys its preview stage (`mode: destroy` — currently broken against the CLI, see Known limitations; Console-connected repositories get teardown from the platform's branch automation instead).
 
 The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the environment wins; otherwise the action requests the run's GitHub OIDC token and exchanges it with Prisma for a workspace token that expires after 30 minutes. When neither path yields a credential, or the exchange refuses the repository, the run prints a notice, sets its `outcome` output to `skipped-no-credential`, and exits successfully without deploying. Forks and unconnected repositories keep a green CI. A failure of the exchange itself, such as an outage, fails the run instead of skipping it.
 
@@ -93,7 +94,7 @@ The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the en
 | `module` | `module.ts` | Path to your app's Composer module. |
 | `mode` | `deploy` | `deploy` or `destroy`. |
 | `stage` | derived | Empty derives the stage from the branch: the default branch deploys to production, any other branch name becomes the stage. `destroy` requires a resolved stage. |
-| `prisma-version` | `8.0.0-rc.7` | The `prisma` package version the action fetches via bunx — the fallback for repositories that do not carry the `prisma` devDependency. Repositories that do carry it deploy with their own installed version. |
+| `prisma-version` | `8.0.0-rc.9` | The `prisma` package version the action fetches via bunx — the fallback for repositories that do not carry the `prisma` devDependency. Repositories that do carry it deploy with their own installed version. |
 | `working-directory` | `.` | Where install, build, and deploy run. |
 | `api-url` | `https://api.prisma.io` | Prisma API base URL for the OIDC credential exchange. |
 
@@ -116,10 +117,11 @@ When a run has no credential, no `[report-stub]` log lines appear; the run is si
 
 ## Requirements
 
-Bun must be on the runner PATH. Add `oven-sh/setup-bun@v2` before this action step. The generated Prisma deploy workflow adds this step for every project.
+Bun `1.3.10` or newer must be on the runner PATH. Add `oven-sh/setup-bun@v2` before this action step; it installs the latest Bun unless a pin (package.json's `packageManager`, a `.bun-version` file, or the step's `bun-version` input) says otherwise. Bun `1.3.9` and older omit Content-Length on the deploy's artifact upload, failing it with HTTP 411, so the action refuses to run on them with an error naming that bug. The generated Prisma deploy workflow adds the setup step for every project.
 
 ## Known limitations
 
+- `mode: destroy` does not work against the current CLI: `8.0.0-rc.9` has no top-level `destroy` command (and no `branch delete`), so the destroy invocation fails. The action keeps the mode and its invocation shape while the CLI's teardown story is settled. In practice, repositories connected through the Prisma Console get preview teardown from the platform's branch automation when a branch is deleted, without running this action.
 - Install detection covers npm and bun lockfiles. Repositories using pnpm or yarn need an explicit `install-command`, and deploys are not tested against them yet.
 - Workflow runs triggered from forks receive no OIDC token from GitHub, so they skip deploying unless a `PRISMA_SERVICE_TOKEN` secret is provided.
 - The deployed preview URL is read from Composer's human deploy output, because released Composer (0.6.0) does not expose it as data. When Composer emits the deploy result in a machine-readable form — a `--json` result carrying each deployed service's public URL — the action should read the URL from there rather than from the printed report.
