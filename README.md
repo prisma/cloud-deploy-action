@@ -119,6 +119,19 @@ When a run has no credential, no `[report-stub]` log lines appear; the run is si
 
 Bun `1.3.10` or newer must be on the runner PATH. Add `oven-sh/setup-bun@v2` before this action step; it installs the latest Bun unless a pin (package.json's `packageManager`, a `.bun-version` file, or the step's `bun-version` input) says otherwise. Bun `1.3.9` and older omit Content-Length on the deploy's artifact upload, failing it with HTTP 411, so the action refuses to run on them with an error naming that bug. The generated Prisma deploy workflow adds the setup step for every project.
 
+## CLI compatibility
+
+The action drives the unified `prisma` CLI, so every action release supports a stated CLI range and enforces it. Three mechanisms keep a CLI change from silently breaking deploys:
+
+- **Pinned fallback.** Each release ships a `prisma-version` default known to work with that release's invocation.
+- **Version guard.** Before deploying with a repository's own `prisma` devDependency, the action checks its version and fails with an error naming the supported range — instead of an opaque `CLI.UNKNOWN_COMMAND` — when it falls outside. An unparseable version is a warning, never a blocker.
+- **Canary.** A daily workflow probes `prisma@next` for the command shape the action invokes, so an upcoming rename is caught in this repository when it ships, not by user deploys.
+
+| Action release | Supported `prisma` CLI | Command shape |
+| --- | --- | --- |
+| unreleased (main) | `>= 8.0.0-rc.8` | top-level `prisma deploy` |
+| v1.0.0 – v1.5.0 | `<= 8.0.0-rc.7` | `prisma composer deploy` (removed in rc.8 — these releases fail against current CLIs) |
+
 ## Known limitations
 
 - `mode: destroy` does not work against the current CLI: `8.0.0-rc.9` has no top-level `destroy` command (and no `branch delete`), so the destroy invocation fails. The action keeps the mode and its invocation shape while the CLI's teardown story is settled. In practice, repositories connected through the Prisma Console get preview teardown from the platform's branch automation when a branch is deleted, without running this action.

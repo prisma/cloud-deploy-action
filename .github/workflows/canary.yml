@@ -1,0 +1,65 @@
+# Canary: probes prisma@next daily so a CLI command rename or removal is
+# caught in this repository when it ships, not by users' broken deploys.
+# The 8.0.0-rc.8 rename (`prisma composer deploy` → `prisma deploy`) broke
+# every released action version at once; this workflow exists so that cannot
+# happen silently again.
+name: canary
+
+on:
+  schedule:
+    # Daily, after the CLI's nightly publish window.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  cli-shape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Match runs.using in action.yml.
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+      - name: Probe the top-level deploy command on prisma@next
+        # `--help` exits 0 even for an unknown command (the CLI falls back
+        # to the general help), so the probe greps for the deploy-specific
+        # usage line instead of trusting the exit code. The general help's
+        # Examples section shows a bare `$ prisma deploy`, so the marker
+        # includes `[options]`, which only the command's own help prints.
+        run: |
+          out="$(bunx -p prisma@next prisma deploy --help 2>&1)"
+          echo "$out"
+          echo "$out" | grep -F '$ prisma deploy [options]'
+      - name: Version guard accepts prisma@next
+        # The guard the action applies to a repository's local CLI must
+        # parse prisma@next's --version output and place it in the
+        # supported range; a guard that rejects the upcoming release would
+        # block users the day it ships.
+        run: |
+          PROBE_OUTPUT="$(bunx -p prisma@next prisma --version 2>&1)" \
+          node --input-type=module -e '
+            import { extractPrismaVersion, isSupportedPrismaVersion, SUPPORTED_PRISMA_RANGE } from "./cli.mjs";
+            const output = process.env.PROBE_OUTPUT;
+            console.log(output);
+            const version = extractPrismaVersion(output);
+            if (version === null) {
+              console.error("no version found in prisma --version output — extractPrismaVersion needs updating");
+              process.exit(1);
+            }
+            if (!isSupportedPrismaVersion(version)) {
+              console.error(`version guard rejects prisma@next (${version}); supported range is ${SUPPORTED_PRISMA_RANGE}`);
+              process.exit(1);
+            }
+            console.log(`version guard accepts prisma@next (${version})`);
+          '
+      - name: Watch for a teardown command returning (informational)
+        # mode: destroy is a documented known limitation while the CLI has
+        # no teardown command. This step never fails; it surfaces a notice
+        # the day a destroy command appears so the action can wire it up.
+        run: |
+          if bunx -p prisma@next prisma destroy --help 2>&1 | grep -qF '$ prisma destroy'; then
+            echo "::notice::prisma@next has a top-level destroy command — wire mode: destroy back up"
+          else
+            echo "destroy still absent on prisma@next (documented known limitation)"
+          fi
