@@ -7,7 +7,10 @@ import { join, resolve } from "node:path";
 import { selectBuildCommand } from "./build.mjs";
 import {
   MINIMUM_BUN_VERSION,
+  SUPPORTED_PRISMA_RANGE,
+  extractPrismaVersion,
   isSupportedBunVersion,
+  isSupportedPrismaVersion,
   selectPrismaCliCommand,
 } from "./cli.mjs";
 import { resolveCredential } from "./credentials.mjs";
@@ -263,6 +266,29 @@ if (buildCommand === null) {
 // never interpolated into a shell string.
 //
 const localBin = join(workdir, "node_modules", ".bin", "prisma");
+
+// Version guard: a local CLI outside the supported range fails here with an
+// error naming the range, instead of an opaque CLI.UNKNOWN_COMMAND from a
+// changed command shape. An unreadable or unparseable version is only a
+// warning — the guard must never break a working deploy over output
+// formatting. The bunx fallback is not probed: its version is this release's
+// own pinned default unless overridden.
+if (existsSync(localBin)) {
+  const probe = spawnSync("node", [localBin, "--version"], { cwd: workdir, stdio: "pipe" });
+  const probeOutput = `${probe.stdout ?? ""}${probe.stderr ?? ""}`;
+  const localVersion = probe.error ? null : extractPrismaVersion(probeOutput);
+  if (localVersion === null) {
+    log("::warning::could not determine the local prisma CLI version; continuing without the compatibility check");
+  } else if (!isSupportedPrismaVersion(localVersion)) {
+    await fail(
+      "cli-version",
+      `the repository's prisma CLI is ${localVersion}, but this action release requires prisma ${SUPPORTED_PRISMA_RANGE} (top-level \`prisma deploy\`). Update the prisma devDependency, or pin the action release that matches your CLI — see the README's CLI compatibility matrix.`,
+    );
+  } else {
+    log(`local prisma CLI ${localVersion} is within the supported range (${SUPPORTED_PRISMA_RANGE})`);
+  }
+}
+
 const composerArgs =
   mode === "deploy"
     ? ["deploy", modulePath, ...(stage ? ["--stage", stage] : [])]

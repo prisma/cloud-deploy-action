@@ -40,6 +40,46 @@ export function isSupportedBunVersion(version) {
   return patch >= minPatch;
 }
 
+// The CLI range this action release speaks: 8.0.0-rc.8 made the deploy
+// commands top-level and removed the `prisma composer` prefix. Stated in
+// error messages and in the README's compatibility matrix.
+export const SUPPORTED_PRISMA_RANGE = ">= 8.0.0-rc.8";
+
+/**
+ * Extracts the CLI version from `prisma --version` output. The current CLI
+ * prints a JSON envelope with a version field; older ones printed a human
+ * line. A lenient regex covers both, so an output-format change degrades to
+ * "version unknown" (a warning) instead of a crash or a false rejection.
+ *
+ * @param {string} output - Combined stdout+stderr of `prisma --version`.
+ * @returns {string|null} e.g. "8.0.0-rc.9", or null when no version is found.
+ */
+export function extractPrismaVersion(output) {
+  const match = output.match(/\b(\d+\.\d+\.\d+(?:-rc\.\d+)?)/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Whether this action release supports the given CLI version — that is,
+ * whether the CLI speaks the top-level command shape introduced in
+ * 8.0.0-rc.8 (SUPPORTED_PRISMA_RANGE).
+ *
+ * @param {string} version - e.g. "8.0.0-rc.9" from extractPrismaVersion.
+ * @returns {boolean}
+ */
+export function isSupportedPrismaVersion(version) {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?/);
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  if (major !== 8) return major > 8;
+  if (minor > 0 || patch > 0) return true;
+  // 8.0.0: stable (no rc tag) and rc.8+ are supported; rc.7 and older speak
+  // the removed `prisma composer` prefix.
+  return match[4] === undefined || Number(match[4]) >= 8;
+}
+
 export function selectPrismaCliCommand(prismaVersion, binExists, composerArgs) {
   if (binExists) {
     return [
