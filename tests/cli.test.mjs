@@ -5,7 +5,7 @@ import { selectPrismaCliCommand } from "../cli.mjs";
 test("runs the local prisma CLI with bun run --bun when the bin exists", () => {
   const [cmd, args, label] = selectPrismaCliCommand("8.0.0-rc.7", true, ["deploy", "module.ts"]);
   assert.equal(cmd, "bun");
-  assert.deepEqual(args, ["run", "--bun", "prisma", "composer", "deploy", "module.ts"]);
+  assert.deepEqual(args, ["run", "--bun", "prisma", "deploy", "module.ts"]);
   assert.equal(label, "composer=local prisma CLI (bun run --bun)");
 });
 
@@ -17,7 +17,7 @@ test("falls back to bunx with the input version when the bin is absent", () => {
     "-p",
     "prisma@8.0.0-rc.7",
     "prisma",
-    "composer",
+
     "deploy",
     "module.ts",
   ]);
@@ -35,7 +35,7 @@ test("deploy args pass through verbatim on the local CLI, stage included", () =>
     "run",
     "--bun",
     "prisma",
-    "composer",
+
     "deploy",
     "app/module.ts",
     "--stage",
@@ -55,7 +55,7 @@ test("destroy args pass through verbatim on the bunx fallback", () => {
     "-p",
     "prisma@8.1.0",
     "prisma",
-    "composer",
+
     "destroy",
     "module.ts",
     "--stage",
