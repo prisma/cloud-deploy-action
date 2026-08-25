@@ -5,7 +5,11 @@ import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { selectBuildCommand } from "./build.mjs";
-import { selectPrismaCliCommand } from "./cli.mjs";
+import {
+  MINIMUM_BUN_VERSION,
+  isSupportedBunVersion,
+  selectPrismaCliCommand,
+} from "./cli.mjs";
 import { resolveCredential } from "./credentials.mjs";
 import { deployedUrlFromOutput } from "./deployment.mjs";
 import { guardReport, makeReporter, mapPhase } from "./report.mjs";
@@ -103,7 +107,7 @@ async function runPhase(phase, command, args, capture = false) {
 
 const mode = input("mode") || "deploy";
 const modulePath = input("module") || "module.ts";
-const prismaVersion = input("prisma-version") || "8.0.0-rc.7";
+const prismaVersion = input("prisma-version") || "8.0.0-rc.9";
 const workdir = resolve(process.env.GITHUB_WORKSPACE ?? ".", input("working-directory") || ".");
 const repository = process.env.GITHUB_REPOSITORY ?? "";
 const branch = process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || "";
@@ -145,6 +149,19 @@ if (bunVersionCheck.error?.code === "ENOENT") {
   failEarly(
     "config",
     "bun not found on PATH: add `- uses: oven-sh/setup-bun@v2` before this action step; the generated Prisma deploy workflow includes this automatically",
+  );
+}
+// Version guard: Bun <= 1.3.9 omits Content-Length on the CLI's artifact
+// upload, failing every deploy with an opaque HTTP 411 — name the cause
+// here instead. An unreadable version is only a warning; the guard must
+// never break a working deploy over output formatting.
+const bunVersion = ((bunVersionCheck.stdout ?? "").toString().match(/\d+\.\d+\.\d+/) ?? [null])[0];
+if (bunVersion === null) {
+  log("::warning::could not determine the bun version; continuing without the compatibility check");
+} else if (!isSupportedBunVersion(bunVersion)) {
+  failEarly(
+    "config",
+    `bun ${bunVersion} is too old: bun <= 1.3.9 omits Content-Length on the deploy's artifact upload, so it fails with HTTP 411. Use bun >= ${MINIMUM_BUN_VERSION} — setup-bun installs the latest by default, so look for an old pin in package.json's \`packageManager\`, a .bun-version file, or the setup step's bun-version input.`,
   );
 }
 

@@ -18,6 +18,28 @@
  * @param {string[]} composerArgs - Arguments after `prisma`, e.g. ["deploy", "module.ts", "--stage", "x"].
  * @returns {[string, string[], string]}
  */
+// The oldest Bun the deploy runs on: Bun <= 1.3.9 omitted Content-Length on
+// the CLI's presigned-URL artifact upload, failing every deploy with
+// "Prisma artifact upload failed (HTTP 411)". Fixed in Bun 1.3.10.
+export const MINIMUM_BUN_VERSION = "1.3.10";
+
+/**
+ * Whether the given Bun version can run the deploy — that is, whether it
+ * carries the Content-Length fix (MINIMUM_BUN_VERSION or newer).
+ *
+ * @param {string} version - e.g. "1.3.11" from `bun --version`.
+ * @returns {boolean}
+ */
+export function isSupportedBunVersion(version) {
+  const match = version.match(/(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return false;
+  const [major, minor, patch] = match.slice(1).map(Number);
+  const [minMajor, minMinor, minPatch] = MINIMUM_BUN_VERSION.split(".").map(Number);
+  if (major !== minMajor) return major > minMajor;
+  if (minor !== minMinor) return minor > minMinor;
+  return patch >= minPatch;
+}
+
 export function selectPrismaCliCommand(prismaVersion, binExists, composerArgs) {
   if (binExists) {
     return [
