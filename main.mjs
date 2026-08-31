@@ -12,7 +12,7 @@ import {
 } from "./cli.mjs";
 import { resolveCredential } from "./credentials.mjs";
 import { deployedUrlFromOutput } from "./deployment.mjs";
-import { guardReport, makeReporter, mapPhase } from "./report.mjs";
+import { failurePatch, guardReport, makeReporter, mapPhase } from "./report.mjs";
 
 // Synchronous stdout keeps ::group:: markers ordered around child output:
 // spawnSync blocks the event loop, so buffered async writes would flush late.
@@ -41,32 +41,16 @@ async function reportUpdate(patch, label) {
 }
 
 // Fails after a build report has been created: sends a failure state update,
-// records the outcome, then exits non-zero.
-//
-// The deploy/destroy phase runs the Prisma CLI, and the CLI reports its own
-// failure to the same build with the exact step and cause. When that report
-// is already on the build, only the state is patched here — this function's
-// "exited with status N" text must not replace the CLI's better one.
+// records the outcome, then exits non-zero. On the deploy/destroy phase the
+// Prisma CLI reports its own, more precise failure first; failurePatch keeps it.
 async function fail(failingStep, errorText) {
   if (reporter && buildId) {
-    const patch = {
-      state: "failed",
-      failingStep: failingStep.slice(0, 500),
-      errorMessage: errorText.slice(0, 5000),
-    };
-    if (failingStep === mode) {
-      const existing = await guardReport(
-        () => reporter.get(buildId),
-        "read before failed",
-        log,
-      );
-      if (existing && (existing.failingStep || existing.errorMessage)) {
-        delete patch.failingStep;
-        delete patch.errorMessage;
-      }
-    }
+    const existing =
+      failingStep === mode
+        ? await guardReport(() => reporter.get(buildId), "read before failed", log)
+        : null;
     const result = await guardReport(
-      () => reporter.update(buildId, patch),
+      () => reporter.update(buildId, failurePatch(existing, failingStep, errorText)),
       "failed",
       log,
     );
@@ -254,9 +238,7 @@ if (buildId) {
   log(`report: created ${buildId}`);
   setOutput("build-id", buildId);
   saveState("buildId", buildId);
-  // The Prisma CLI reads PRISMA_BUILD_ID and reports into this build,
-  // instead of re-deriving the run identity from GITHUB_* variables and
-  // risking a mismatched duplicate build.
+  // The Prisma CLI reads this and reports into this build instead of creating its own.
   process.env.PRISMA_BUILD_ID = buildId;
 } else {
   setOutput("build-id", STUB_BUILD_ID);

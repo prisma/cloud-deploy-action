@@ -113,7 +113,7 @@ Progress phases map to two server-side labels: `build` and `deploy`. The install
 
 On a successful deploy, the action also reports the deployed preview URL (`deployedUrl`) so the Console can link the live preview from the build. It reads the address — Composer's `https://<hash>.<region>.prisma.build` line — from the deploy report, anchored to the `.prisma.build` suffix; an app with several public services reports the first. Reporting the URL is best-effort like every other report: a missing address or a failed report call leaves the deploy successful.
 
-On a failed deploy or destroy, the Prisma CLI inside the run reports its own failure to the same build, with the exact failing step and cause. The action defers to that report: it sends its generic "exited with status N" message only when the build has no failure details yet — for example when the CLI crashed before it could report. To make the two reporters meet on one build, the action sets `PRISMA_BUILD_ID` in the environment of the commands it runs; the CLI reports into that build instead of creating its own. The post step follows the same rule: it never changes a build that already reached a final state, and never replaces a recorded error message.
+On a failed deploy or destroy, the Prisma CLI reports its own failure to the same build (the action hands it the build via `PRISMA_BUILD_ID`), with the exact failing step and cause. The action and the post step defer to that report: they only send their generic messages when the build has no failure details yet.
 
 When a run has no credential, no `[report-stub]` log lines appear; the run is silent on reporting.
 

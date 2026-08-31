@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { guardReport, makeReporter, mapPhase } from "../report.mjs";
+import { failurePatch, guardReport, makeReporter, mapPhase } from "../report.mjs";
 
 const API_URL = "https://api.example.test";
 const TOKEN = "tok-test";
@@ -281,53 +281,15 @@ test("get throws on non-2xx", async () => {
   await assert.rejects(reporter.get(BUILD_ID), /responded 404/);
 });
 
-// --- Deploy failure defers to the CLI's own report ---
+// --- failurePatch ---
 
-// Mirror the fail() logic from main.mjs for the deploy phase: read the build,
-// and drop the generic failingStep/errorMessage when the CLI already reported.
-async function deployFailurePatch(reporter, existingLookupFailed = false) {
-  const patch = {
-    state: "failed",
-    failingStep: "deploy",
-    errorMessage: "bun run --bun prisma deploy module.ts exited with status 2",
-  };
-  const existing = existingLookupFailed ? null : await reporter.get(BUILD_ID);
-  if (existing && (existing.failingStep || existing.errorMessage)) {
-    delete patch.failingStep;
-    delete patch.errorMessage;
-  }
-  return patch;
-}
-
-test("deploy failure patches only state when the CLI already reported the failure", async () => {
-  const fetchImpl = async () =>
-    jsonResponse(200, {
-      data: {
-        id: BUILD_ID,
-        state: "failed",
-        failingStep: "DEPLOY.PREFLIGHT_FAILED",
-        errorMessage: "Deploy preflight failed - GOOGLE_CLIENT_SECRET is not provisioned",
-      },
-    });
-  const reporter = makeReporter({ apiUrl: API_URL, token: TOKEN, fetchImpl });
-  const patch = await deployFailurePatch(reporter);
-  assert.deepEqual(patch, { state: "failed" });
+test("failurePatch keeps an existing failure report and patches only state", () => {
+  const existing = { failingStep: "DEPLOY.PREFLIGHT_FAILED", errorMessage: "preflight failed" };
+  assert.deepEqual(failurePatch(existing, "deploy", "exited with status 2"), { state: "failed" });
 });
 
-test("deploy failure sends the full generic report when the build has no failure details", async () => {
-  const fetchImpl = async () =>
-    jsonResponse(200, {
-      data: { id: BUILD_ID, state: "running", failingStep: null, errorMessage: null },
-    });
-  const reporter = makeReporter({ apiUrl: API_URL, token: TOKEN, fetchImpl });
-  const patch = await deployFailurePatch(reporter);
-  assert.equal(patch.failingStep, "deploy");
-  assert.ok(patch.errorMessage.includes("exited with status 2"));
-});
-
-test("deploy failure sends the full generic report when the build lookup fails", async () => {
-  const reporter = makeReporter({ apiUrl: API_URL, token: TOKEN, fetchImpl: async () => jsonResponse(500, {}) });
-  const patch = await deployFailurePatch(reporter, true);
-  assert.equal(patch.failingStep, "deploy");
-  assert.ok(patch.errorMessage.length > 0);
+test("failurePatch sends the full report when the build has no failure details", () => {
+  const patch = failurePatch({ failingStep: null, errorMessage: null }, "deploy", "exited with status 2");
+  assert.deepEqual(patch, { state: "failed", failingStep: "deploy", errorMessage: "exited with status 2" });
+  assert.deepEqual(failurePatch(null, "deploy", "x"), { state: "failed", failingStep: "deploy", errorMessage: "x" });
 });

@@ -39,6 +39,22 @@ export function mapPhase(phase) {
 }
 
 /**
+ * The failure patch for a build, capped to the API's field limits. When the
+ * build already carries failure details (the Prisma CLI reported its own,
+ * more precise failure), only the state is patched.
+ */
+export function failurePatch(existing, failingStep, errorText) {
+  if (existing && (existing.failingStep || existing.errorMessage)) {
+    return { state: "failed" };
+  }
+  return {
+    state: "failed",
+    failingStep: failingStep.slice(0, 500),
+    errorMessage: errorText.slice(0, 5000),
+  };
+}
+
+/**
  * Calls fn(). On any rejection logs a single warning line and returns null
  * instead of throwing, so a reporting failure never fails the calling step.
  */

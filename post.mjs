@@ -37,9 +37,7 @@ if (finalOutcome) {
     }
     const reporter = makeReporter({ apiUrl, token: credential.token });
     try {
-      // The Prisma CLI may have reported its own outcome before the runner
-      // was interrupted. A build that is already terminal stays as it is,
-      // and a recorded error message is not replaced.
+      // The Prisma CLI may already have reported this build's outcome; keep it.
       const existing = await reporter.get(buildId).catch(() => null);
       if (existing && ["succeeded", "failed", "cancelled"].includes(existing.state)) {
         log(`Nothing to do: the build is already ${existing.state}.`);
