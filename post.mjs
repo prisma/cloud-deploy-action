@@ -37,11 +37,21 @@ if (finalOutcome) {
     }
     const reporter = makeReporter({ apiUrl, token: credential.token });
     try {
-      await reporter.update(buildId, {
-        state: "cancelled",
-        errorMessage: "The workflow run was interrupted.",
-      });
-      log(`report: cancelled ${buildId}`);
+      // The Prisma CLI may have reported its own outcome before the runner
+      // was interrupted. A build that is already terminal stays as it is,
+      // and a recorded error message is not replaced.
+      const existing = await reporter.get(buildId).catch(() => null);
+      if (existing && ["succeeded", "failed", "cancelled"].includes(existing.state)) {
+        log(`Nothing to do: the build is already ${existing.state}.`);
+      } else {
+        await reporter.update(
+          buildId,
+          existing && (existing.errorMessage || existing.failingStep)
+            ? { state: "cancelled" }
+            : { state: "cancelled", errorMessage: "The workflow run was interrupted." },
+        );
+        log(`report: cancelled ${buildId}`);
+      }
     } catch (error) {
       log(`::warning::interrupted report failed: ${error.message}`);
     }

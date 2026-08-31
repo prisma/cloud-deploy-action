@@ -80,6 +80,12 @@ export function makeReporter({ apiUrl, token, fetchImpl = fetch }) {
       return envelope.data.id;
     },
 
+    /** GET /v1/builds/{id}; returns the build record. */
+    async get(buildId) {
+      const envelope = await call("GET", `/v1/builds/${buildId}`);
+      return envelope.data;
+    },
+
     /** PATCH /v1/builds/{id} with the given fields. */
     async update(buildId, patch) {
       await call("PATCH", `/v1/builds/${buildId}`, patch);

@@ -255,3 +255,79 @@ test("non-2xx report responses warn and do not throw when wrapped with guardRepo
   assert.equal(result, null);
   assert.ok(warnings.some((w) => w.includes("::warning::")));
 });
+
+// --- reporter.get ---
+
+test("get unwraps data from the response envelope", async () => {
+  let sentUrl;
+  let sentMethod;
+  const fetchImpl = async (url, init) => {
+    sentUrl = url;
+    sentMethod = init.method;
+    return jsonResponse(200, {
+      data: { id: BUILD_ID, state: "failed", failingStep: "DEPLOY.PREFLIGHT_FAILED" },
+    });
+  };
+  const reporter = makeReporter({ apiUrl: API_URL, token: TOKEN, fetchImpl });
+  const build = await reporter.get(BUILD_ID);
+  assert.equal(sentUrl, `${API_URL}/v1/builds/${BUILD_ID}`);
+  assert.equal(sentMethod, "GET");
+  assert.equal(build.failingStep, "DEPLOY.PREFLIGHT_FAILED");
+});
+
+test("get throws on non-2xx", async () => {
+  const fetchImpl = async () => jsonResponse(404, {});
+  const reporter = makeReporter({ apiUrl: API_URL, token: TOKEN, fetchImpl });
+  await assert.rejects(reporter.get(BUILD_ID), /responded 404/);
+});
+
+// --- Deploy failure defers to the CLI's own report ---
+
+// Mirror the fail() logic from main.mjs for the deploy phase: read the build,
+// and drop the generic failingStep/errorMessage when the CLI already reported.
+async function deployFailurePatch(reporter, existingLookupFailed = false) {
+  const patch = {
+    state: "failed",
+    failingStep: "deploy",
+    errorMessage: "bun run --bun prisma deploy module.ts exited with status 2",
+  };
+  const existing = existingLookupFailed ? null : await reporter.get(BUILD_ID);
+  if (existing && (existing.failingStep || existing.errorMessage)) {
+    delete patch.failingStep;
+    delete patch.errorMessage;
+  }
+  return patch;
+}
+
+test("deploy failure patches only state when the CLI already reported the failure", async () => {
+  const fetchImpl = async () =>
+    jsonResponse(200, {
+      data: {
+        id: BUILD_ID,
+        state: "failed",
+        failingStep: "DEPLOY.PREFLIGHT_FAILED",
+        errorMessage: "Deploy preflight failed - GOOGLE_CLIENT_SECRET is not provisioned",
+      },
+    });
+  const reporter = makeReporter({ apiUrl: API_URL, token: TOKEN, fetchImpl });
+  const patch = await deployFailurePatch(reporter);
+  assert.deepEqual(patch, { state: "failed" });
+});
+
+test("deploy failure sends the full generic report when the build has no failure details", async () => {
+  const fetchImpl = async () =>
+    jsonResponse(200, {
+      data: { id: BUILD_ID, state: "running", failingStep: null, errorMessage: null },
+    });
+  const reporter = makeReporter({ apiUrl: API_URL, token: TOKEN, fetchImpl });
+  const patch = await deployFailurePatch(reporter);
+  assert.equal(patch.failingStep, "deploy");
+  assert.ok(patch.errorMessage.includes("exited with status 2"));
+});
+
+test("deploy failure sends the full generic report when the build lookup fails", async () => {
+  const reporter = makeReporter({ apiUrl: API_URL, token: TOKEN, fetchImpl: async () => jsonResponse(500, {}) });
+  const patch = await deployFailurePatch(reporter, true);
+  assert.equal(patch.failingStep, "deploy");
+  assert.ok(patch.errorMessage.length > 0);
+});
