@@ -39,6 +39,22 @@ export function mapPhase(phase) {
 }
 
 /**
+ * The failure patch for a build, capped to the API's field limits. When the
+ * build already carries failure details (the Prisma CLI reported its own,
+ * more precise failure), only the state is patched.
+ */
+export function failurePatch(existing, failingStep, errorText) {
+  if (existing && (existing.failingStep || existing.errorMessage)) {
+    return { state: "failed" };
+  }
+  return {
+    state: "failed",
+    failingStep: failingStep.slice(0, 500),
+    errorMessage: errorText.slice(0, 5000),
+  };
+}
+
+/**
  * Calls fn(). On any rejection logs a single warning line and returns null
  * instead of throwing, so a reporting failure never fails the calling step.
  */
@@ -78,6 +94,12 @@ export function makeReporter({ apiUrl, token, fetchImpl = fetch }) {
     async create(payload) {
       const envelope = await call("POST", "/v1/builds", payload);
       return envelope.data.id;
+    },
+
+    /** GET /v1/builds/{id}; returns the build record. */
+    async get(buildId) {
+      const envelope = await call("GET", `/v1/builds/${buildId}`);
+      return envelope.data;
     },
 
     /** PATCH /v1/builds/{id} with the given fields. */

@@ -12,7 +12,7 @@ import {
 } from "./cli.mjs";
 import { resolveCredential } from "./credentials.mjs";
 import { deployedUrlFromOutput } from "./deployment.mjs";
-import { guardReport, makeReporter, mapPhase } from "./report.mjs";
+import { failurePatch, guardReport, makeReporter, mapPhase } from "./report.mjs";
 
 // Synchronous stdout keeps ::group:: markers ordered around child output:
 // spawnSync blocks the event loop, so buffered async writes would flush late.
@@ -41,16 +41,16 @@ async function reportUpdate(patch, label) {
 }
 
 // Fails after a build report has been created: sends a failure state update,
-// records the outcome, then exits non-zero.
+// records the outcome, then exits non-zero. On the deploy/destroy phase the
+// Prisma CLI reports its own, more precise failure first; failurePatch keeps it.
 async function fail(failingStep, errorText) {
   if (reporter && buildId) {
+    const existing =
+      failingStep === mode
+        ? await guardReport(() => reporter.get(buildId), "read before failed", log)
+        : null;
     const result = await guardReport(
-      () =>
-        reporter.update(buildId, {
-          state: "failed",
-          failingStep: failingStep.slice(0, 500),
-          errorMessage: errorText.slice(0, 5000),
-        }),
+      () => reporter.update(buildId, failurePatch(existing, failingStep, errorText)),
       "failed",
       log,
     );
@@ -238,6 +238,8 @@ if (buildId) {
   log(`report: created ${buildId}`);
   setOutput("build-id", buildId);
   saveState("buildId", buildId);
+  // The Prisma CLI reads this and reports into this build instead of creating its own.
+  process.env.PRISMA_BUILD_ID = buildId;
 } else {
   setOutput("build-id", STUB_BUILD_ID);
 }

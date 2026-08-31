@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { guardReport, makeReporter, mapPhase } from "../report.mjs";
+import { failurePatch, guardReport, makeReporter, mapPhase } from "../report.mjs";
 
 const API_URL = "https://api.example.test";
 const TOKEN = "tok-test";
@@ -254,4 +254,42 @@ test("non-2xx report responses warn and do not throw when wrapped with guardRepo
 
   assert.equal(result, null);
   assert.ok(warnings.some((w) => w.includes("::warning::")));
+});
+
+// --- reporter.get ---
+
+test("get unwraps data from the response envelope", async () => {
+  let sentUrl;
+  let sentMethod;
+  const fetchImpl = async (url, init) => {
+    sentUrl = url;
+    sentMethod = init.method;
+    return jsonResponse(200, {
+      data: { id: BUILD_ID, state: "failed", failingStep: "DEPLOY.PREFLIGHT_FAILED" },
+    });
+  };
+  const reporter = makeReporter({ apiUrl: API_URL, token: TOKEN, fetchImpl });
+  const build = await reporter.get(BUILD_ID);
+  assert.equal(sentUrl, `${API_URL}/v1/builds/${BUILD_ID}`);
+  assert.equal(sentMethod, "GET");
+  assert.equal(build.failingStep, "DEPLOY.PREFLIGHT_FAILED");
+});
+
+test("get throws on non-2xx", async () => {
+  const fetchImpl = async () => jsonResponse(404, {});
+  const reporter = makeReporter({ apiUrl: API_URL, token: TOKEN, fetchImpl });
+  await assert.rejects(reporter.get(BUILD_ID), /responded 404/);
+});
+
+// --- failurePatch ---
+
+test("failurePatch keeps an existing failure report and patches only state", () => {
+  const existing = { failingStep: "DEPLOY.PREFLIGHT_FAILED", errorMessage: "preflight failed" };
+  assert.deepEqual(failurePatch(existing, "deploy", "exited with status 2"), { state: "failed" });
+});
+
+test("failurePatch sends the full report when the build has no failure details", () => {
+  const patch = failurePatch({ failingStep: null, errorMessage: null }, "deploy", "exited with status 2");
+  assert.deepEqual(patch, { state: "failed", failingStep: "deploy", errorMessage: "exited with status 2" });
+  assert.deepEqual(failurePatch(null, "deploy", "x"), { state: "failed", failingStep: "deploy", errorMessage: "x" });
 });
