@@ -27,6 +27,21 @@ async function fetchWithRetry(fetchImpl, url, init) {
 }
 
 /**
+ * Headers that tell the Prisma API which tool sent a request, for its deploy
+ * analytics. The API behaves the same without them.
+ */
+export function clientHeaders(env) {
+  return {
+    "x-prisma-client-name": "cloud-deploy-action",
+    // The ref the workflow pinned: v1, v1.7.0, or a commit SHA.
+    ...(env.GITHUB_ACTION_REF
+      ? { "x-prisma-client-version": env.GITHUB_ACTION_REF }
+      : {}),
+    "x-prisma-deploy-source": "github-action",
+  };
+}
+
+/**
  * Maps an action phase name to the server-side phase vocabulary.
  * "install" runs the user's toolchain and maps to "build".
  * "destroy" is a Composer apply operation and maps to "deploy".
@@ -71,13 +86,19 @@ export async function guardReport(fn, label, log) {
  * Returns a reporter bound to an API base URL and bearer token.
  * Pass fetchImpl to stub network calls in tests.
  */
-export function makeReporter({ apiUrl, token, fetchImpl = fetch }) {
+export function makeReporter({
+  apiUrl,
+  token,
+  fetchImpl = fetch,
+  env = process.env,
+}) {
   const base = apiUrl.replace(/\/$/, "");
 
   async function call(method, path, body) {
     const response = await fetchWithRetry(fetchImpl, `${base}${path}`, {
       method,
       headers: {
+        ...clientHeaders(env),
         "content-type": "application/json",
         authorization: `Bearer ${token}`,
       },

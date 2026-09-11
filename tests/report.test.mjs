@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { failurePatch, guardReport, makeReporter, mapPhase } from "../report.mjs";
+import {
+  clientHeaders,
+  failurePatch,
+  guardReport,
+  makeReporter,
+  mapPhase,
+} from "../report.mjs";
 
 const API_URL = "https://api.example.test";
 const TOKEN = "tok-test";
@@ -87,6 +93,35 @@ test("create uses Bearer authorization", async () => {
   const reporter = makeReporter({ apiUrl: API_URL, token: "tok-secret", fetchImpl });
   await reporter.create({ source: "ci" });
   assert.equal(authHeader, "Bearer tok-secret");
+});
+
+test("reports name the action, its ref, and GitHub Actions as the deploy source", async () => {
+  const sentHeaders = [];
+  const fetchImpl = async (url, init) => {
+    sentHeaders.push(init.headers);
+    return jsonResponse(201, { data: { id: BUILD_ID } });
+  };
+  const reporter = makeReporter({
+    apiUrl: API_URL,
+    token: TOKEN,
+    fetchImpl,
+    env: { GITHUB_ACTION_REF: "v1.8.0" },
+  });
+  await reporter.create({ source: "ci" });
+  await reporter.update(BUILD_ID, { phase: "build" });
+  for (const headers of sentHeaders) {
+    assert.equal(headers["x-prisma-client-name"], "cloud-deploy-action");
+    assert.equal(headers["x-prisma-client-version"], "v1.8.0");
+    assert.equal(headers["x-prisma-deploy-source"], "github-action");
+  }
+  assert.equal(sentHeaders.length, 2);
+});
+
+test("clientHeaders leaves out the version when the runner sets no action ref", () => {
+  assert.deepEqual(clientHeaders({}), {
+    "x-prisma-client-name": "cloud-deploy-action",
+    "x-prisma-deploy-source": "github-action",
+  });
 });
 
 // --- reporter.update ---
