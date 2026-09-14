@@ -109,7 +109,7 @@ The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the en
 
 The action reports build progress and outcomes to the Prisma API so your deploys show up in the Prisma Console. Reporting is active when the run has a credential (service token or OIDC exchange). When no credential is available, no reports are sent.
 
-Every request the action sends to the Prisma API also carries three headers for Prisma's deploy analytics: `x-prisma-client-name: cloud-deploy-action`, `x-prisma-client-version` (the action ref your workflow uses, such as `v1`), and `x-prisma-deploy-source: github-action`. They hold no repository or user data, and the API behaves the same without them.
+Every request the action sends to the Prisma API also carries headers for Prisma's deploy analytics: `x-prisma-client-name: cloud-deploy-action` and `x-prisma-deploy-source: github-action`. When GitHub provides the action ref (`GITHUB_ACTION_REF`, such as `v1`), the action also sends it as `x-prisma-client-version`. The headers hold no repository or user data, and the API behaves the same without them.
 
 Progress phases map to two server-side labels: `build` and `deploy`. The install and build commands both fall under `build`; the Composer deploy or destroy step falls under `deploy`. Build states are `running` (stamped when the first phase starts), `succeeded`, `failed`, or `cancelled` (sent by the post step when the runner is interrupted mid-flight).
 
