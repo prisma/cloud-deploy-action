@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deployedUrlFromOutput } from "../deployment.mjs";
+import { deployedUrlFromOutput, deployedUrlsFromOutput } from "../deployment.mjs";
 
 const ESC = String.fromCharCode(27);
 
@@ -67,4 +67,65 @@ test("returns null for empty or non-string input", () => {
   assert.equal(deployedUrlFromOutput(""), null);
   assert.equal(deployedUrlFromOutput(undefined), null);
   assert.equal(deployedUrlFromOutput(null), null);
+});
+
+// The stdout of a real three-service deploy (kristof-siket/keel), trimmed of entity details.
+const KEEL_RESULT = JSON.stringify({
+  kind: "result",
+  envelope: {
+    ok: true,
+    commandId: "deploy",
+    result: {
+      summary: {
+        app: "keel",
+        nodes: [
+          { address: "database", entities: [{ kind: "postgres-database", id: "db_1" }] },
+          { address: "mail.db", entities: [{ kind: "postgres-database", id: "db_2" }] },
+          {
+            address: "mail.service",
+            entities: [{ kind: "compute-service", id: "cps_mail", url: "https://mail.fra.prisma.build" }],
+          },
+          {
+            address: "login.service",
+            entities: [{ kind: "compute-service", id: "cps_login", url: "https://login.fra.prisma.build" }],
+          },
+          {
+            address: "app",
+            entities: [{ kind: "compute-service", id: "cps_app", url: "https://app.fra.prisma.build" }],
+          },
+        ],
+      },
+    },
+  },
+});
+
+test("reads every service URL from the deploy result and picks the root service", () => {
+  assert.deepEqual(deployedUrlsFromOutput(`${KEEL_RESULT}\n`), {
+    urls: {
+      "mail.service": "https://mail.fra.prisma.build",
+      "login.service": "https://login.fra.prisma.build",
+      app: "https://app.fra.prisma.build",
+    },
+    url: "https://app.fra.prisma.build",
+  });
+});
+
+test("ignores other commands' result lines and non-JSON output", () => {
+  const skills = JSON.stringify({ kind: "result", envelope: { commandId: "skills.sync", result: {} } });
+  const output = [skills, "Done: 41 succeeded", KEEL_RESULT].join("\n");
+  assert.equal(deployedUrlsFromOutput(output).url, "https://app.fra.prisma.build");
+});
+
+test("falls back to the first nested service when no root service has a URL", () => {
+  const result = JSON.parse(KEEL_RESULT);
+  result.envelope.result.summary.nodes.pop();
+  assert.equal(deployedUrlsFromOutput(JSON.stringify(result)).url, "https://mail.fra.prisma.build");
+});
+
+test("falls back to the printed report when the CLI emits no result line", () => {
+  assert.deepEqual(deployedUrlsFromOutput(DEPLOY_REPORT), {
+    urls: {},
+    url: "https://wfzg31o86hblgngtaz2lh4mw.ewr.prisma.build",
+  });
+  assert.deepEqual(deployedUrlsFromOutput(""), { urls: {}, url: null });
 });

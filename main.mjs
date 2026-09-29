@@ -11,7 +11,7 @@ import {
   selectPrismaCliCommand,
 } from "./cli.mjs";
 import { resolveCredential } from "./credentials.mjs";
-import { deployedUrlFromOutput } from "./deployment.mjs";
+import { deployedUrlsFromOutput } from "./deployment.mjs";
 import { failurePatch, guardReport, makeReporter, mapPhase } from "./report.mjs";
 
 // Synchronous stdout keeps ::group:: markers ordered around child output:
@@ -278,8 +278,22 @@ log(cliLabel);
 
 const deployOutput = await runPhase(mode, cliCmd, cliArgs, mode === "deploy");
 
+const { urls, url: deployedUrl } =
+  mode === "deploy" ? deployedUrlsFromOutput(deployOutput) : { urls: {}, url: null };
+if (mode === "deploy") {
+  setOutput("url", deployedUrl ?? "");
+  setOutput("urls", JSON.stringify(urls));
+  const rows = Object.entries(urls).map(([address, u]) => `| \`${address}\` | ${u} |`);
+  if (rows.length > 0 && process.env.GITHUB_STEP_SUMMARY) {
+    const target = stage ? `stage \`${stage}\`` : "production";
+    appendFileSync(
+      process.env.GITHUB_STEP_SUMMARY,
+      `### Deployed to ${target}\n\n| Service | URL |\n| --- | --- |\n${rows.join("\n")}\n`,
+    );
+  }
+}
+
 if (reporter && buildId) {
-  const deployedUrl = mode === "deploy" ? deployedUrlFromOutput(deployOutput) : null;
   await reportUpdate(
     deployedUrl ? { state: "succeeded", deployedUrl } : { state: "succeeded" },
     "succeeded",
