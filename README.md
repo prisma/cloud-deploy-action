@@ -104,6 +104,23 @@ The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the en
 | --- | --- |
 | `outcome` | `succeeded`, `failed`, or `skipped-no-credential` |
 | `build-id` | The build id assigned by the Prisma API when reporting is active. Holds a stable placeholder value when the run has no credential, so downstream steps always receive a value. |
+| `url` | After a deploy, the public URL of the app's root service (the service declared in the root module, e.g. `app`). Empty when the deploy exposed no service. |
+| `urls` | After a deploy, a JSON object mapping every deployed service's Composer address to its public URL, e.g. `{"app":"https://….prisma.build","login.service":"https://…"}`. `{}` on every other outcome (skipped, failed, destroy). |
+
+When the CLI prints its structured deploy result, the job summary also lists every service URL. To get a "View deployment" button on pull requests, point the job's environment at the `url` output:
+
+```yaml
+  deploy:
+    environment:
+      name: ${{ github.ref_name == github.event.repository.default_branch && 'production' || format('preview/{0}', github.ref_name) }}
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      # …
+      - id: deploy
+        uses: prisma/cloud-deploy-action@v1
+```
+
+Other services are reachable with `fromJSON(steps.deploy.outputs.urls)['login.service']`.
 
 ## Build status reporting
 
@@ -111,7 +128,7 @@ The action reports build progress and outcomes to the Prisma API so your deploys
 
 Progress phases map to two server-side labels: `build` and `deploy`. The install and build commands both fall under `build`; the Composer deploy or destroy step falls under `deploy`. Build states are `running` (stamped when the first phase starts), `succeeded`, `failed`, or `cancelled` (sent by the post step when the runner is interrupted mid-flight).
 
-On a successful deploy, the action also reports the deployed preview URL (`deployedUrl`) so the Console can link the live preview from the build. It reads the address — Composer's `https://<hash>.<region>.prisma.build` line — from the deploy report, anchored to the `.prisma.build` suffix; an app with several public services reports the first. Reporting the URL is best-effort like every other report: a missing address or a failed report call leaves the deploy successful.
+On a successful deploy, the action also reports the deployed preview URL (`deployedUrl`) so the Console can link the live preview from the build. It is the `url` output: the root service's address, read from the structured `deploy` result the Prisma CLI prints to stdout. A CLI that prints no result line falls back to the first `.prisma.build` address in its output. Reporting the URL is best-effort like every other report: a missing address or a failed report call leaves the deploy successful.
 
 On a failed deploy or destroy, the Prisma CLI reports its own failure to the same build (the action hands it the build via `PRISMA_BUILD_ID`), with the exact failing step and cause. The action and the post step defer to that report: they only send their generic messages when the build has no failure details yet.
 
@@ -126,7 +143,6 @@ Bun `1.3.10` or newer must be on the runner PATH. Add `oven-sh/setup-bun@v2` bef
 - `mode: destroy` does not work against the current CLI: `8.0.0-rc.9` has no top-level `destroy` command (and no `branch delete`), so the destroy invocation fails. The action keeps the mode and its invocation shape while the CLI's teardown story is settled. In practice, repositories connected through the Prisma Console get preview teardown from the platform's branch automation when a branch is deleted, without running this action.
 - Install detection covers npm and bun lockfiles. Repositories using pnpm or yarn need an explicit `install-command`, and deploys are not tested against them yet.
 - Workflow runs triggered from forks receive no OIDC token from GitHub, so they skip deploying unless a `PRISMA_SERVICE_TOKEN` secret is provided.
-- The deployed preview URL is read from Composer's human deploy output, because released Composer (0.6.0) does not expose it as data. When Composer emits the deploy result in a machine-readable form — a `--json` result carrying each deployed service's public URL — the action should read the URL from there rather than from the printed report.
 
 ## Security
 
