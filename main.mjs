@@ -114,6 +114,8 @@ const branch = process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || "";
 const runUrl = `${process.env.GITHUB_SERVER_URL ?? "https://github.com"}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`;
 
 log(`prisma-deploy: mode=${mode} module=${modulePath} working-directory=${workdir}`);
+// Every exit path leaves valid JSON for fromJSON(); a deploy overwrites it (last write wins).
+setOutput("urls", "{}");
 
 if (mode !== "deploy" && mode !== "destroy") {
   failEarly("config", `unknown mode "${mode}" (expected "deploy" or "destroy")`);
@@ -286,10 +288,14 @@ if (mode === "deploy") {
   const rows = Object.entries(urls).map(([address, u]) => `| \`${address}\` | ${u} |`);
   if (rows.length > 0 && process.env.GITHUB_STEP_SUMMARY) {
     const target = stage ? `stage \`${stage}\`` : "production";
-    appendFileSync(
-      process.env.GITHUB_STEP_SUMMARY,
-      `### Deployed to ${target}\n\n| Service | URL |\n| --- | --- |\n${rows.join("\n")}\n`,
-    );
+    try {
+      appendFileSync(
+        process.env.GITHUB_STEP_SUMMARY,
+        `### Deployed to ${target}\n\n| Service | URL |\n| --- | --- |\n${rows.join("\n")}\n`,
+      );
+    } catch (error) {
+      log(`::warning::could not write the job summary: ${error.message}`);
+    }
   }
 }
 

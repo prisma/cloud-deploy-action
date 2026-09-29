@@ -105,9 +105,9 @@ The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the en
 | `outcome` | `succeeded`, `failed`, or `skipped-no-credential` |
 | `build-id` | The build id assigned by the Prisma API when reporting is active. Holds a stable placeholder value when the run has no credential, so downstream steps always receive a value. |
 | `url` | After a deploy, the public URL of the app's root service (the service declared in the root module, e.g. `app`). Empty when the deploy exposed no service. |
-| `urls` | After a deploy, a JSON object mapping every deployed service's Composer address to its public URL, e.g. `{"app":"https://….prisma.build","login.service":"https://…"}`. `{}` otherwise. |
+| `urls` | After a deploy, a JSON object mapping every deployed service's Composer address to its public URL, e.g. `{"app":"https://….prisma.build","login.service":"https://…"}`. `{}` on every other outcome (skipped, failed, destroy). |
 
-A deploy also lists every service URL in the job summary. To get a "View deployment" button on pull requests, point the job's environment at the `url` output:
+When the CLI prints its structured deploy result, the job summary also lists every service URL. To get a "View deployment" button on pull requests, point the job's environment at the `url` output:
 
 ```yaml
   deploy:
