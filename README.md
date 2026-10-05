@@ -126,6 +126,8 @@ Other services are reachable with `fromJSON(steps.deploy.outputs.urls)['login.se
 
 The action reports build progress and outcomes to the Prisma API so your deploys show up in the Prisma Console. Reporting is active when the run has a credential (service token or OIDC exchange). When no credential is available, no reports are sent.
 
+Every request the action sends to the Prisma API also carries headers for Prisma's deploy analytics: `x-prisma-client-name: cloud-deploy-action` and `x-prisma-deploy-source: github-action`. When GitHub provides the action ref (`GITHUB_ACTION_REF`, such as `v1`), the action also sends it as `x-prisma-client-version`. The headers hold no repository or user data, and the API behaves the same without them.
+
 Progress phases map to two server-side labels: `build` and `deploy`. The install and build commands both fall under `build`; the Composer deploy or destroy step falls under `deploy`. Build states are `running` (stamped when the first phase starts), `succeeded`, `failed`, or `cancelled` (sent by the post step when the runner is interrupted mid-flight).
 
 On a successful deploy, the action also reports the deployed preview URL (`deployedUrl`) so the Console can link the live preview from the build. It is the `url` output: the root service's address, read from the structured `deploy` result the Prisma CLI prints to stdout. A CLI that prints no result line falls back to the first `.prisma.build` address in its output. Reporting the URL is best-effort like every other report: a missing address or a failed report call leaves the deploy successful.
