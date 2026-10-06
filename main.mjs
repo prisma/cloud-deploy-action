@@ -13,9 +13,10 @@ import {
 import { resolveCredential } from "./credentials.mjs";
 import { deployedUrlsFromOutput } from "./deployment.mjs";
 import { failurePatch, guardReport, makeReporter, mapPhase } from "./report.mjs";
+import { runCommand } from "./run.mjs";
 
-// Synchronous stdout keeps ::group:: markers ordered around child output:
-// spawnSync blocks the event loop, so buffered async writes would flush late.
+// Synchronous stdout keeps ::group:: markers ordered around child output,
+// which reaches fd 1 directly or through runCommand's synchronous writes.
 const log = (line) => writeSync(1, `${line}\n`);
 
 const input = (name) => (process.env[`INPUT_${name.toUpperCase()}`] ?? "").trim();
@@ -83,16 +84,7 @@ async function runPhase(phase, command, args, capture = false) {
   // String commands come from the consuming repo's own workflow inputs and
   // run through a shell verbatim; argv arrays never touch a shell, so
   // event-controlled values like the stage name cannot inject.
-  const stdio = capture ? ["inherit", "pipe", "inherit"] : "inherit";
-  // maxBuffer raised so a large but successful deploy is not misreported as a spawn failure.
-  const options = capture
-    ? { cwd: workdir, stdio, maxBuffer: 64 * 1024 * 1024 }
-    : { cwd: workdir, stdio };
-  const result = args
-    ? spawnSync(command, args, options)
-    : spawnSync(command, { ...options, shell: true });
-  const captured = capture && result.stdout ? result.stdout.toString() : "";
-  if (captured) writeSync(1, captured);
+  const result = await runCommand(command, args, { cwd: workdir, capture });
   log("::endgroup::");
   if (result.status !== 0) {
     const error =
@@ -102,7 +94,7 @@ async function runPhase(phase, command, args, capture = false) {
         : `${printable} exited with status ${result.status}`);
     await fail(phase, error);
   }
-  return captured;
+  return result.stdout;
 }
 
 const mode = input("mode") || "deploy";
