@@ -3,6 +3,7 @@
 // credential is available. Interface and behaviors are frozen by ./README.md.
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, writeSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { selectBuildCommand } from "./build.mjs";
 import {
@@ -12,6 +13,7 @@ import {
 } from "./cli.mjs";
 import { resolveCredential } from "./credentials.mjs";
 import { deployedUrlsFromOutput } from "./deployment.mjs";
+import { readRunReport, renderJobSummary } from "./summary.mjs";
 import { failurePatch, guardReport, makeReporter, mapPhase } from "./report.mjs";
 
 // Synchronous stdout keeps ::group:: markers ordered around child output:
@@ -23,14 +25,37 @@ const setOutput = (name, value) => appendFileSync(process.env.GITHUB_OUTPUT, `${
 const saveState = (name, value) => appendFileSync(process.env.GITHUB_STATE, `${name}=${value}\n`);
 
 const STUB_BUILD_ID = `build_stub_${process.env.GITHUB_RUN_ID}`;
+const startedAt = Date.now();
 
 let reporter = null;
 let buildId = null;
 let firstPhaseReported = false;
 
-function finish(outcome) {
+// Called once on every exit path. A job summary error is logged, never fatal.
+function finish(outcome, { cause, urls } = {}) {
   setOutput("outcome", outcome);
   saveState("finalOutcome", outcome);
+  try {
+    const report = readRunReport(reportPath, startedAt);
+    if (report) setOutput("report-path", reportPath);
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      const summary = renderJobSummary({
+        outcome,
+        mode,
+        stage,
+        sha: process.env.GITHUB_SHA,
+        ref: branch,
+        buildId,
+        report,
+        reportPath,
+        urls,
+        cause,
+      });
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+    }
+  } catch (error) {
+    log(`::warning::could not write the job summary: ${error.message}`);
+  }
 }
 
 async function reportUpdate(patch, label) {
@@ -56,14 +81,14 @@ async function fail(failingStep, errorText) {
     );
     if (result !== null) log("report: failed");
   }
-  finish("failed");
+  finish("failed", { cause: `${failingStep} failed: ${errorText}` });
   log(`::error::${failingStep} failed: ${errorText}`);
   process.exit(1);
 }
 
 // Fails before any build report exists: no API call, just exit.
 function failEarly(failingStep, errorText) {
-  finish("failed");
+  finish("failed", { cause: `${failingStep} failed: ${errorText}` });
   log(`::error::${failingStep} failed: ${errorText}`);
   process.exit(1);
 }
@@ -112,14 +137,14 @@ const workdir = resolve(process.env.GITHUB_WORKSPACE ?? ".", input("working-dire
 const repository = process.env.GITHUB_REPOSITORY ?? "";
 const branch = process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || "";
 const runUrl = `${process.env.GITHUB_SERVER_URL ?? "https://github.com"}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+// The deploy writes its run report here; a path the workflow already set is kept.
+process.env.PRISMA_COMPOSER_REPORT_FILE ||= join(process.env.RUNNER_TEMP || tmpdir(), "prisma-deploy-report.json");
+// The CLI resolves a relative path against its cwd, which is workdir.
+const reportPath = resolve(workdir, process.env.PRISMA_COMPOSER_REPORT_FILE);
 
 log(`prisma-deploy: mode=${mode} module=${modulePath} working-directory=${workdir}`);
 // Every exit path leaves valid JSON for fromJSON(); a deploy overwrites it (last write wins).
 setOutput("urls", "{}");
-
-if (mode !== "deploy" && mode !== "destroy") {
-  failEarly("config", `unknown mode "${mode}" (expected "deploy" or "destroy")`);
-}
 
 const defaultBranch = (() => {
   try {
@@ -133,6 +158,9 @@ const defaultBranch = (() => {
 // The default branch deploys to production, which has no stage name; every
 // other branch deploys to a stage named after it.
 const stage = input("stage") || (branch === defaultBranch ? "" : branch);
+if (mode !== "deploy" && mode !== "destroy") {
+  failEarly("config", `unknown mode "${mode}" (expected "deploy" or "destroy")`);
+}
 if (!input("stage") && !branch) {
   failEarly("config", "cannot derive a stage: the event context has no branch; set the stage input");
 }
@@ -192,7 +220,7 @@ const credential = await (async () => {
   try {
     return await resolveCredential(process.env, apiUrl);
   } catch (error) {
-    finish("failed");
+    finish("failed", { cause: `credential failed: ${error.message}` });
     log(`::error::credential failed: ${error.message}`);
     process.exit(1);
   }
@@ -285,18 +313,6 @@ const { urls, url: deployedUrl } =
 if (mode === "deploy") {
   setOutput("url", deployedUrl ?? "");
   setOutput("urls", JSON.stringify(urls));
-  const rows = Object.entries(urls).map(([address, u]) => `| \`${address}\` | ${u} |`);
-  if (rows.length > 0 && process.env.GITHUB_STEP_SUMMARY) {
-    const target = stage ? `stage \`${stage}\`` : "production";
-    try {
-      appendFileSync(
-        process.env.GITHUB_STEP_SUMMARY,
-        `### Deployed to ${target}\n\n| Service | URL |\n| --- | --- |\n${rows.join("\n")}\n`,
-      );
-    } catch (error) {
-      log(`::warning::could not write the job summary: ${error.message}`);
-    }
-  }
 }
 
 if (reporter && buildId) {
@@ -305,4 +321,4 @@ if (reporter && buildId) {
     "succeeded",
   );
 }
-finish("succeeded");
+finish("succeeded", { urls });

@@ -106,8 +106,9 @@ The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the en
 | `build-id` | The build id assigned by the Prisma API when reporting is active. Holds a stable placeholder value when the run has no credential, so downstream steps always receive a value. |
 | `url` | After a deploy, the public URL of the app's root service (the service declared in the root module, e.g. `app`). Empty when the deploy exposed no service. |
 | `urls` | After a deploy, a JSON object mapping every deployed service's Composer address to its public URL, e.g. `{"app":"https://….prisma.build","login.service":"https://…"}`. `{}` on every other outcome (skipped, failed, destroy). |
+| `report-path` | The path of the JSON run report the deploy wrote during this run, on success and on failure. Not set when the deploy wrote no report. |
 
-When the CLI prints its structured deploy result, the job summary also lists every service URL. To get a "View deployment" button on pull requests, point the job's environment at the `url` output:
+To get a "View deployment" button on pull requests, point the job's environment at the `url` output:
 
 ```yaml
   deploy:
@@ -121,6 +122,12 @@ When the CLI prints its structured deploy result, the job summary also lists eve
 ```
 
 Other services are reachable with `fromJSON(steps.deploy.outputs.urls)['login.service']`.
+
+## Job summary
+
+Every run writes a job summary: the outcome, the commit, the ref, and the build id. After a deploy it lists each service with its URL, the databases by id, and the optional inputs each service left unset. After a failure it shows the cause. Writing the summary never changes the run's outcome.
+
+The summary comes from the run report the Prisma CLI writes to `PRISMA_COMPOSER_REPORT_FILE`. The action sets that variable to a file under `$RUNNER_TEMP` unless your workflow already sets it, and exposes the path as the `report-path` output for later steps. Without a report, the summary still shows the outcome and any service URLs from the CLI's structured deploy result.
 
 ## Build status reporting
 
