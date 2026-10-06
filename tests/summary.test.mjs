@@ -200,6 +200,28 @@ test("readRunReport ignores a missing file, invalid JSON, and a report older tha
   assert.equal(readRunReport(path, Date.now() + 60_000), null);
 });
 
+test("readRunReport treats a report that is not the version 1 shape as missing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "summary-test-"));
+  const path = join(dir, "report.json");
+  const node = PRODUCTION_REPORT.nodes[5];
+  const shapes = [
+    null,
+    [],
+    { nodes: {} },
+    { ...PRODUCTION_REPORT, version: 2 },
+    { ...PRODUCTION_REPORT, outcome: "running" },
+    { ...PRODUCTION_REPORT, failure: "boom" },
+    { ...PRODUCTION_REPORT, nodes: [null] },
+    { ...PRODUCTION_REPORT, nodes: [{ address: "app", entities: {} }] },
+    { ...PRODUCTION_REPORT, nodes: [{ address: "app", entities: [null] }] },
+    { ...PRODUCTION_REPORT, nodes: [{ ...node, entities: [{ ...node.entities[0], details: { absent: ["X"] } }] }] },
+  ];
+  for (const shape of shapes) {
+    writeFileSync(path, JSON.stringify(shape));
+    assert.equal(readRunReport(path, 0), null, JSON.stringify(shape));
+  }
+});
+
 // An unknown mode fails before any tool runs, so main.mjs can run here end to end.
 function runMainWithUnknownMode(stepSummary) {
   const dir = mkdtempSync(join(tmpdir(), "summary-main-"));

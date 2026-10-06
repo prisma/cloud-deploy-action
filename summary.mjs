@@ -2,15 +2,41 @@
 // the deploy writes to PRISMA_COMPOSER_REPORT_FILE.
 import { readFileSync, statSync } from "node:fs";
 
+const isObject = (value) => typeof value === "object" && value !== null;
+
+/** Whether `report` has the version 1 run report shape that renderJobSummary reads. */
+function isRunReportV1(report) {
+  return (
+    isObject(report) &&
+    report.version === 1 &&
+    (report.outcome === "succeeded" || report.outcome === "failed") &&
+    (report.app === null || typeof report.app === "string") &&
+    (report.failure === null || isObject(report.failure)) &&
+    Array.isArray(report.nodes) &&
+    report.nodes.every(
+      (node) =>
+        isObject(node) &&
+        typeof node.address === "string" &&
+        Array.isArray(node.entities) &&
+        node.entities.every(
+          (entity) =>
+            isObject(entity) && (entity.details?.absent === undefined || typeof entity.details.absent === "string"),
+        ),
+    )
+  );
+}
+
 /**
  * The run report the deploy wrote during this run, or null when there is
  * none. A file older than `notBefore` (epoch ms) is left over from an earlier
- * run, so it counts as none; so does a file that is not valid JSON.
+ * run, so it counts as none; so does a file that is not valid JSON or not a
+ * version 1 run report.
  */
 export function readRunReport(path, notBefore) {
   try {
     if (statSync(path).mtimeMs < notBefore) return null;
-    return JSON.parse(readFileSync(path, "utf8"));
+    const report = JSON.parse(readFileSync(path, "utf8"));
+    return isRunReportV1(report) ? report : null;
   } catch {
     return null;
   }
