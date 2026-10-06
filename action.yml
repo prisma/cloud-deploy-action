@@ -34,6 +34,8 @@ outputs:
     description: Public URL of the app's root service after a deploy (empty when none was found)
   urls:
     description: 'JSON map of every deployed service address to its public URL, e.g. {"app":"https://….prisma.build","mail.service":"https://…"}'
+  report-path:
+    description: Path of the JSON run report the deploy wrote during this run (empty when it wrote none)
 runs:
   using: node24
   main: main.mjs
