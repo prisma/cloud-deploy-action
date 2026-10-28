@@ -12,11 +12,31 @@ export function deployedUrlFromOutput(output) {
 
 /**
  * Every deployed service's public URL, keyed by its Composer address, read
+ * from the run report the deploy writes to PRISMA_COMPOSER_REPORT_FILE.
+ * `url` is the service nested least deeply.
+ */
+export function deployedUrlsFromReport(report) {
+  const urls = {};
+  for (const node of report?.nodes ?? []) {
+    const entity = (node.entities ?? []).find((e) => e.kind === "compute-service" && e.url);
+    if (entity) urls[node.address] = entity.url;
+  }
+  const root = topLevelAddress(Object.keys(urls));
+  return { urls, url: root ? urls[root] : null };
+}
+
+/** The address nested least deeply, the first of those on a tie. */
+function topLevelAddress(addresses) {
+  const depth = (address) => address.split(".").length;
+  return addresses.reduce((best, a) => (best === undefined || depth(a) < depth(best) ? a : best), undefined);
+}
+
+/**
+ * Every deployed service's public URL, keyed by its Composer address, read
  * from the `deploy` result line the Prisma CLI prints to stdout
  * (`{"kind":"result","envelope":{"commandId":"deploy","result":{"summary":…}}}`).
- * `url` is the root module's service (an address without a dot, e.g. "app"),
- * falling back to the first service, then to the first `.prisma.build`
- * address in the text for CLIs that print no result line.
+ * `url` is the service nested least deeply, falling back to the first
+ * `.prisma.build` address in the text for CLIs that print no result line.
  */
 export function deployedUrlsFromOutput(output) {
   const urls = {};
@@ -33,7 +53,6 @@ export function deployedUrlsFromOutput(output) {
       if (entity) urls[node.address] = entity.url;
     }
   }
-  const addresses = Object.keys(urls);
-  const root = addresses.find((a) => !a.includes(".")) ?? addresses[0];
+  const root = topLevelAddress(Object.keys(urls));
   return { urls, url: root ? urls[root] : deployedUrlFromOutput(output) };
 }

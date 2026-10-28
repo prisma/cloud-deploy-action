@@ -14,7 +14,7 @@ import {
   selectPrismaCliCommand,
 } from "./cli.mjs";
 import { resolveCredential } from "./credentials.mjs";
-import { deployedUrlsFromOutput } from "./deployment.mjs";
+import { deployedUrlsFromOutput, deployedUrlsFromReport } from "./deployment.mjs";
 import { readRunReport, renderJobSummary } from "./summary.mjs";
 import { failurePatch, guardReport, makeReporter, mapPhase } from "./report.mjs";
 import { runCommand } from "./run.mjs";
@@ -305,8 +305,13 @@ log(cliLabel);
 
 const deployOutput = await runPhase(mode, cliCmd, cliArgs, mode === "deploy");
 
+const fromReport = deployedUrlsFromReport(readRunReport(reportPath, startedAt));
 const { urls, url: deployedUrl } =
-  mode === "deploy" ? deployedUrlsFromOutput(deployOutput) : { urls: {}, url: null };
+  mode !== "deploy"
+    ? { urls: {}, url: null }
+    : Object.keys(fromReport.urls).length > 0
+      ? fromReport
+      : deployedUrlsFromOutput(deployOutput);
 if (mode === "deploy") {
   setOutput("url", deployedUrl ?? "");
   setOutput("urls", JSON.stringify(urls));
