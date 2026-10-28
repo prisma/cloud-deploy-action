@@ -8,6 +8,8 @@ import { join, resolve } from "node:path";
 import { selectBuildCommand } from "./build.mjs";
 import {
   MINIMUM_BUN_VERSION,
+  composerArguments,
+  installedPrismaVersion,
   isSupportedBunVersion,
   selectPrismaCliCommand,
 } from "./cli.mjs";
@@ -287,13 +289,16 @@ if (buildCommand === null) {
 // never interpolated into a shell string.
 //
 const localBin = join(workdir, "node_modules", ".bin", "prisma");
-const composerArgs =
-  mode === "deploy"
-    ? ["deploy", modulePath, ...(stage ? ["--stage", stage] : [])]
-    : ["destroy", modulePath, "--stage", stage];
+const hasLocalBin = existsSync(localBin);
+const composerArgs = composerArguments(
+  mode,
+  modulePath,
+  stage,
+  hasLocalBin ? installedPrismaVersion(workdir) : prismaVersion,
+);
 const [cliCmd, cliArgs, cliLabel] = selectPrismaCliCommand(
   prismaVersion,
-  existsSync(localBin),
+  hasLocalBin,
   composerArgs,
 );
 log(cliLabel);

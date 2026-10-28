@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isSupportedBunVersion, selectPrismaCliCommand } from "../cli.mjs";
+import {
+  composerArguments,
+  installedPrismaVersion,
+  isSupportedBunVersion,
+  selectPrismaCliCommand,
+  takesEntryFlag,
+} from "../cli.mjs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 test("runs the local prisma CLI with bun run --bun when the bin exists", () => {
   const [cmd, args, label] = selectPrismaCliCommand("8.0.0-rc.7", true, ["deploy", "module.ts"]);
@@ -89,4 +98,54 @@ test("rejects bun 1.3.9 and older, which omit Content-Length on uploads", () => 
 
 test("rejects output that carries no version", () => {
   assert.equal(isSupportedBunVersion("command not found"), false);
+});
+
+test("names the module with --entry for a prisma CLI from 8.0.0-rc.28", () => {
+  assert.deepEqual(composerArguments("deploy", "module.ts", "", "8.0.0-rc.28"), [
+    "deploy",
+    "--entry",
+    "module.ts",
+  ]);
+  assert.deepEqual(composerArguments("deploy", "app/module.ts", "pr-7", "8.1.0"), [
+    "deploy",
+    "--entry",
+    "app/module.ts",
+    "--stage",
+    "pr-7",
+  ]);
+});
+
+test("passes the module positionally for a prisma CLI before 8.0.0-rc.28", () => {
+  assert.deepEqual(composerArguments("deploy", "module.ts", "pr-7", "8.0.0-rc.27"), [
+    "deploy",
+    "module.ts",
+    "--stage",
+    "pr-7",
+  ]);
+  assert.deepEqual(composerArguments("destroy", "module.ts", "pr-7", "8.0.0-rc.9"), [
+    "destroy",
+    "module.ts",
+    "--stage",
+    "pr-7",
+  ]);
+});
+
+test("takes --entry from rc.28 onward and positional before it", () => {
+  assert.equal(takesEntryFlag("8.0.0-rc.27"), false);
+  assert.equal(takesEntryFlag("8.0.0-rc.28"), true);
+  assert.equal(takesEntryFlag("8.0.0-rc.100"), true);
+  assert.equal(takesEntryFlag("8.0.0"), true);
+  assert.equal(takesEntryFlag("8.0.1-dev.3"), true);
+  assert.equal(takesEntryFlag("7.10.1"), false);
+});
+
+test("reads the installed prisma version, or empty when there is none", () => {
+  const workdir = mkdtempSync(join(tmpdir(), "cli-test-"));
+  assert.equal(installedPrismaVersion(workdir), "");
+  mkdirSync(join(workdir, "node_modules", "prisma"), { recursive: true });
+  writeFileSync(
+    join(workdir, "node_modules", "prisma", "package.json"),
+    JSON.stringify({ name: "prisma", version: "8.0.0-rc.27" }),
+  );
+  assert.equal(installedPrismaVersion(workdir), "8.0.0-rc.27");
 });
