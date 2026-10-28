@@ -8,11 +8,13 @@ import { join, resolve } from "node:path";
 import { selectBuildCommand } from "./build.mjs";
 import {
   MINIMUM_BUN_VERSION,
+  composerArguments,
+  installedPrismaVersion,
   isSupportedBunVersion,
   selectPrismaCliCommand,
 } from "./cli.mjs";
 import { resolveCredential } from "./credentials.mjs";
-import { deployedUrlsFromOutput } from "./deployment.mjs";
+import { deployedUrlsFromOutput, deployedUrlsFromReport } from "./deployment.mjs";
 import { readRunReport, renderJobSummary } from "./summary.mjs";
 import { failurePatch, guardReport, makeReporter, mapPhase } from "./report.mjs";
 import { runCommand } from "./run.mjs";
@@ -287,21 +289,29 @@ if (buildCommand === null) {
 // never interpolated into a shell string.
 //
 const localBin = join(workdir, "node_modules", ".bin", "prisma");
-const composerArgs =
-  mode === "deploy"
-    ? ["deploy", modulePath, ...(stage ? ["--stage", stage] : [])]
-    : ["destroy", modulePath, "--stage", stage];
+const hasLocalBin = existsSync(localBin);
+const composerArgs = composerArguments(
+  mode,
+  modulePath,
+  stage,
+  hasLocalBin ? installedPrismaVersion(workdir) : prismaVersion,
+);
 const [cliCmd, cliArgs, cliLabel] = selectPrismaCliCommand(
   prismaVersion,
-  existsSync(localBin),
+  hasLocalBin,
   composerArgs,
 );
 log(cliLabel);
 
 const deployOutput = await runPhase(mode, cliCmd, cliArgs, mode === "deploy");
 
+const fromReport = deployedUrlsFromReport(readRunReport(reportPath, startedAt));
 const { urls, url: deployedUrl } =
-  mode === "deploy" ? deployedUrlsFromOutput(deployOutput) : { urls: {}, url: null };
+  mode !== "deploy"
+    ? { urls: {}, url: null }
+    : Object.keys(fromReport.urls).length > 0
+      ? fromReport
+      : deployedUrlsFromOutput(deployOutput);
 if (mode === "deploy") {
   setOutput("url", deployedUrl ?? "");
   setOutput("urls", JSON.stringify(urls));

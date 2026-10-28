@@ -91,7 +91,7 @@ The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the en
 | --- | --- | --- |
 | `build-command` | `npm run build` | Your build command, run verbatim. It runs in both modes, because destroy evaluates the built app to know what to remove. The exact value `none` skips the build phase in both modes, for repositories with no build script; an empty value keeps the default. |
 | `install-command` | auto | Detected from the lockfile: `npm ci` for `package-lock.json`, `bun install --frozen-lockfile` for a bun lockfile. Set this to override. pnpm and yarn are not supported yet. |
-| `module` | `module.ts` | Path to your app's Composer module. |
+| `module` | `module.ts` | Path to your app's Composer module. On `prisma` 8.0.0-rc.28 and later the action passes it as `--entry`, which overrides the `entry` in `prisma.config.ts`. |
 | `mode` | `deploy` | `deploy` or `destroy`. |
 | `stage` | derived | Empty derives the stage from the branch: the default branch deploys to production, any other branch name becomes the stage. `destroy` requires a resolved stage. |
 | `prisma-version` | `8.0.0-rc.9` | The `prisma` package version the action fetches via bunx — the fallback for repositories that do not carry the `prisma` devDependency. Repositories that do carry it deploy with their own installed version. |

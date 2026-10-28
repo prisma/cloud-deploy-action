@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 /**
  * Returns [cmd, args, logLabel] for running the Composer command family of
  * the unified `prisma` CLI under Bun. The bunx fallback covers repositories
@@ -38,6 +41,53 @@ export function isSupportedBunVersion(version) {
   if (major !== minMajor) return major > minMajor;
   if (minor !== minMinor) return minor > minMinor;
   return patch >= minPatch;
+}
+
+/**
+ * Whether this `prisma` CLI takes the module as `--entry <path>`. From
+ * 8.0.0-rc.28 (Composer 0.35.0) `deploy` rejects a positional module.
+ *
+ * @param {string} version - e.g. "8.0.0-rc.28".
+ * @returns {boolean}
+ */
+export function takesEntryFlag(version) {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?/);
+  if (!match) return true;
+  const [major, minor, patch] = match.slice(1, 4).map(Number);
+  if (major !== 8 || minor !== 0 || patch !== 0) return major >= 8;
+  return match[4] === undefined || Number(match[4]) >= 28;
+}
+
+/**
+ * The version of the `prisma` package installed in `workdir`, or "" when it
+ * cannot be read.
+ *
+ * @param {string} workdir
+ * @returns {string}
+ */
+export function installedPrismaVersion(workdir) {
+  try {
+    const manifest = JSON.parse(
+      readFileSync(join(workdir, "node_modules", "prisma", "package.json"), "utf8"),
+    );
+    return typeof manifest.version === "string" ? manifest.version : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The arguments after `prisma` for a deploy or destroy of `modulePath`.
+ *
+ * @param {"deploy" | "destroy"} mode
+ * @param {string} modulePath
+ * @param {string} stage - Empty for production.
+ * @param {string} cliVersion - The version of the `prisma` CLI that will run.
+ * @returns {string[]}
+ */
+export function composerArguments(mode, modulePath, stage, cliVersion) {
+  const entry = takesEntryFlag(cliVersion) ? ["--entry", modulePath] : [modulePath];
+  return [mode, ...entry, ...(stage ? ["--stage", stage] : [])];
 }
 
 export function selectPrismaCliCommand(prismaVersion, binExists, composerArgs) {

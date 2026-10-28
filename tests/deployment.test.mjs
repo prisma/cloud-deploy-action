@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deployedUrlFromOutput, deployedUrlsFromOutput } from "../deployment.mjs";
+import { deployedUrlFromOutput, deployedUrlsFromOutput, deployedUrlsFromReport } from "../deployment.mjs";
 
 const ESC = String.fromCharCode(27);
 
@@ -128,4 +128,36 @@ test("falls back to the printed report when the CLI emits no result line", () =>
     url: "https://wfzg31o86hblgngtaz2lh4mw.ewr.prisma.build",
   });
   assert.deepEqual(deployedUrlsFromOutput(""), { urls: {}, url: null });
+});
+
+test("reads every service URL from the run report, with prefixed addresses", () => {
+  const report = {
+    nodes: [
+      { address: "shop.api", entities: [{ kind: "compute-service", url: "https://api.ewr.prisma.build" }] },
+      { address: "shop.catalog.web", entities: [{ kind: "compute-service", url: "https://web.ewr.prisma.build" }] },
+      { address: "shop.database", entities: [{ kind: "postgres-database", id: "db_1" }] },
+    ],
+  };
+  assert.deepEqual(deployedUrlsFromReport(report), {
+    urls: {
+      "shop.api": "https://api.ewr.prisma.build",
+      "shop.catalog.web": "https://web.ewr.prisma.build",
+    },
+    url: "https://api.ewr.prisma.build",
+  });
+});
+
+test("reads a single unprefixed service from the run report", () => {
+  const report = {
+    nodes: [{ address: "app", entities: [{ kind: "compute-service", url: "https://app.ewr.prisma.build" }] }],
+  };
+  assert.deepEqual(deployedUrlsFromReport(report), {
+    urls: { app: "https://app.ewr.prisma.build" },
+    url: "https://app.ewr.prisma.build",
+  });
+});
+
+test("reads no URLs from a missing report or one without services", () => {
+  assert.deepEqual(deployedUrlsFromReport(null), { urls: {}, url: null });
+  assert.deepEqual(deployedUrlsFromReport({ nodes: [] }), { urls: {}, url: null });
 });
