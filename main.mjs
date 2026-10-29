@@ -16,7 +16,7 @@ import {
 import { resolveCredential } from "./credentials.mjs";
 import { deployedUrlsFromOutput, deployedUrlsFromReport } from "./deployment.mjs";
 import { readRunReport, renderJobSummary } from "./summary.mjs";
-import { failurePatch, guardReport, makeReporter, mapPhase } from "./report.mjs";
+import { failurePatch, guardReport, makeReporter, mapPhase, reportEarlyFailure } from "./report.mjs";
 import { runCommand } from "./run.mjs";
 
 // Synchronous stdout keeps ::group:: markers ordered around child output,
@@ -89,8 +89,22 @@ async function fail(failingStep, errorText) {
   process.exit(1);
 }
 
-// Fails before any build report exists: no API call, just exit.
-function failEarly(failingStep, errorText) {
+// Fails before the action has created its build report. The platform holds
+// a queued build for this run, and without a report it would only say the
+// run "finished without reporting", so the cause is reported to it first.
+async function failEarly(failingStep, errorText) {
+  const reportedId = await reportEarlyFailure({
+    env: process.env,
+    apiUrl,
+    createPayload: buildReport,
+    failingStep,
+    errorText,
+    log,
+  });
+  if (reportedId) {
+    buildId = reportedId;
+    setOutput("build-id", reportedId);
+  }
   finish("failed", { cause: `${failingStep} failed: ${errorText}` });
   log(`::error::${failingStep} failed: ${errorText}`);
   process.exit(1);
@@ -131,6 +145,21 @@ const workdir = resolve(process.env.GITHUB_WORKSPACE ?? ".", input("working-dire
 const repository = process.env.GITHUB_REPOSITORY ?? "";
 const branch = process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || "";
 const runUrl = `${process.env.GITHUB_SERVER_URL ?? "https://github.com"}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+const apiUrl = input("api-url") || "https://api.prisma.io";
+// The run identity lets this report converge on the build the platform
+// already queued for the run, instead of creating a second one.
+const buildReport = {
+  source: "ci",
+  commitSha: process.env.GITHUB_SHA ?? "",
+  branchName: branch,
+  runIdentity: {
+    provider: "github",
+    repositoryId: process.env.GITHUB_REPOSITORY_ID ?? "",
+    runId: process.env.GITHUB_RUN_ID ?? "",
+    runAttempt: parseInt(process.env.GITHUB_RUN_ATTEMPT ?? "1", 10),
+  },
+  externalLogUrl: runUrl,
+};
 // The deploy writes its run report here; a path the workflow already set is kept.
 process.env.PRISMA_COMPOSER_REPORT_FILE ||= join(process.env.RUNNER_TEMP || tmpdir(), "prisma-deploy-report.json");
 // The CLI resolves a relative path against its cwd, which is workdir.
@@ -153,13 +182,13 @@ const defaultBranch = (() => {
 // other branch deploys to a stage named after it.
 const stage = input("stage") || (branch === defaultBranch ? "" : branch);
 if (mode !== "deploy" && mode !== "destroy") {
-  failEarly("config", `unknown mode "${mode}" (expected "deploy" or "destroy")`);
+  await failEarly("config", `unknown mode "${mode}" (expected "deploy" or "destroy")`);
 }
 if (!input("stage") && !branch) {
-  failEarly("config", "cannot derive a stage: the event context has no branch; set the stage input");
+  await failEarly("config", "cannot derive a stage: the event context has no branch; set the stage input");
 }
 if (mode === "destroy" && !stage) {
-  failEarly(
+  await failEarly(
     "config",
     "destroy refuses to run without a resolved stage; the default branch derives to production, so pass the stage input explicitly",
   );
@@ -170,7 +199,7 @@ log(stage ? `${mode} target: --stage ${stage}` : `${mode} target: production (de
 // deploy workflow adds `oven-sh/setup-bun@v2` for every project.
 const bunVersionCheck = spawnSync("bun", ["--version"], { stdio: "pipe" });
 if (bunVersionCheck.error?.code === "ENOENT") {
-  failEarly(
+  await failEarly(
     "config",
     "bun not found on PATH: add `- uses: oven-sh/setup-bun@v2` before this action step; the generated Prisma deploy workflow includes this automatically",
   );
@@ -183,7 +212,7 @@ const bunVersion = ((bunVersionCheck.stdout ?? "").toString().match(/\d+\.\d+\.\
 if (bunVersion === null) {
   log("::warning::could not determine the bun version; continuing without the compatibility check");
 } else if (!isSupportedBunVersion(bunVersion)) {
-  failEarly(
+  await failEarly(
     "config",
     `bun ${bunVersion} is too old: bun <= 1.3.9 omits Content-Length on the deploy's artifact upload, so it fails with HTTP 411. Use bun >= ${MINIMUM_BUN_VERSION} — setup-bun installs the latest by default, so look for an old pin in package.json's \`packageManager\`, a .bun-version file, or the setup step's bun-version input.`,
   );
@@ -199,7 +228,7 @@ const installCommand = (() => {
   return null;
 })();
 if (!installCommand) {
-  failEarly(
+  await failEarly(
     "install",
     `install-auto-detect-failed: no bun.lock, bun.lockb, or package-lock.json in ${workdir} (pnpm/yarn are out of scope); set the install-command input`,
   );
@@ -209,7 +238,6 @@ if (!installCommand) {
 // with no credential path skip reporting entirely and exit successfully without
 // deploying. A transient exchange failure (outage) fails the run instead of
 // skipping it.
-const apiUrl = input("api-url") || "https://api.prisma.io";
 const credential = await (async () => {
   try {
     return await resolveCredential(process.env, apiUrl);
@@ -240,23 +268,7 @@ if (credential.source === "oidc") {
 reporter = makeReporter({ apiUrl, token: credential.token });
 
 // Create the build report. A failure here is a warning, not a deploy blocker.
-buildId = await guardReport(
-  () =>
-    reporter.create({
-      source: "ci",
-      commitSha: process.env.GITHUB_SHA ?? "",
-      branchName: branch,
-      runIdentity: {
-        provider: "github",
-        repositoryId: process.env.GITHUB_REPOSITORY_ID ?? "",
-        runId: process.env.GITHUB_RUN_ID ?? "",
-        runAttempt: parseInt(process.env.GITHUB_RUN_ATTEMPT ?? "1", 10),
-      },
-      externalLogUrl: runUrl,
-    }),
-  "create",
-  log,
-);
+buildId = await guardReport(() => reporter.create(buildReport), "create", log);
 
 if (buildId) {
   log(`report: created ${buildId}`);

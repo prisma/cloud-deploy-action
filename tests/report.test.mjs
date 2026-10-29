@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { failurePatch, guardReport, makeReporter, mapPhase } from "../report.mjs";
+import { failurePatch, guardReport, makeReporter, mapPhase, reportEarlyFailure } from "../report.mjs";
 
 const API_URL = "https://api.example.test";
 const TOKEN = "tok-test";
@@ -292,4 +292,153 @@ test("failurePatch sends the full report when the build has no failure details",
   const patch = failurePatch({ failingStep: null, errorMessage: null }, "deploy", "exited with status 2");
   assert.deepEqual(patch, { state: "failed", failingStep: "deploy", errorMessage: "exited with status 2" });
   assert.deepEqual(failurePatch(null, "deploy", "x"), { state: "failed", failingStep: "deploy", errorMessage: "x" });
+});
+
+// --- reportEarlyFailure ---
+
+const RUN_PAYLOAD = {
+  source: "ci",
+  commitSha: "abc123def456",
+  branchName: "main",
+  runIdentity: { provider: "github", repositoryId: "98765", runId: "11111", runAttempt: 1 },
+  externalLogUrl: "https://github.com/org/repo/actions/runs/11111",
+};
+
+function recordingFetch(createStatus = 201, existingBuild = {}) {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    const method = init.method ?? "GET";
+    calls.push({ url, method, body: init.body ? JSON.parse(init.body) : undefined });
+    if (method === "POST") return jsonResponse(createStatus, { data: { id: BUILD_ID } });
+    if (method === "GET") return jsonResponse(200, { data: existingBuild });
+    return jsonResponse(200, { data: {} });
+  };
+  return { calls, fetchImpl };
+}
+
+test("reportEarlyFailure creates the run's build and records the cause on it", async () => {
+  const { calls, fetchImpl } = recordingFetch();
+  const buildId = await reportEarlyFailure({
+    env: { PRISMA_SERVICE_TOKEN: TOKEN },
+    apiUrl: API_URL,
+    createPayload: RUN_PAYLOAD,
+    failingStep: "config",
+    errorText: "bun not found on PATH",
+    log: () => {},
+    fetchImpl,
+  });
+  assert.equal(buildId, BUILD_ID);
+  assert.deepEqual(
+    calls.map(({ url, method }) => `${method} ${url}`),
+    [
+      `POST ${API_URL}/v1/builds`,
+      `GET ${API_URL}/v1/builds/${BUILD_ID}`,
+      `PATCH ${API_URL}/v1/builds/${BUILD_ID}`,
+    ],
+  );
+  assert.deepEqual(calls[0].body.runIdentity, RUN_PAYLOAD.runIdentity);
+  assert.deepEqual(calls[2].body, {
+    state: "failed",
+    failingStep: "config",
+    errorMessage: "bun not found on PATH",
+  });
+});
+
+test("reportEarlyFailure keeps a cause another job of the run already recorded", async () => {
+  const { calls, fetchImpl } = recordingFetch(201, {
+    failingStep: "install",
+    errorMessage: "install-auto-detect-failed",
+  });
+  const buildId = await reportEarlyFailure({
+    env: { PRISMA_SERVICE_TOKEN: TOKEN },
+    apiUrl: API_URL,
+    createPayload: RUN_PAYLOAD,
+    failingStep: "config",
+    errorText: "bun not found on PATH",
+    log: () => {},
+    fetchImpl,
+  });
+  assert.equal(buildId, BUILD_ID);
+  assert.deepEqual(calls.at(-1), {
+    url: `${API_URL}/v1/builds/${BUILD_ID}`,
+    method: "PATCH",
+    body: { state: "failed" },
+  });
+});
+
+test("reportEarlyFailure still records the cause when the read before it fails", async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    const method = init.method ?? "GET";
+    calls.push({ method, body: init.body ? JSON.parse(init.body) : undefined });
+    if (method === "POST") return jsonResponse(201, { data: { id: BUILD_ID } });
+    if (method === "GET") return jsonResponse(404, {});
+    return jsonResponse(200, { data: {} });
+  };
+  const buildId = await reportEarlyFailure({
+    env: { PRISMA_SERVICE_TOKEN: TOKEN },
+    apiUrl: API_URL,
+    createPayload: RUN_PAYLOAD,
+    failingStep: "config",
+    errorText: "bun not found on PATH",
+    log: () => {},
+    fetchImpl,
+  });
+  assert.equal(buildId, BUILD_ID);
+  assert.deepEqual(calls.at(-1), {
+    method: "PATCH",
+    body: { state: "failed", failingStep: "config", errorMessage: "bun not found on PATH" },
+  });
+});
+
+test("reportEarlyFailure sends nothing when the run has no credential", async () => {
+  const { calls, fetchImpl } = recordingFetch();
+  const buildId = await reportEarlyFailure({
+    env: {},
+    apiUrl: API_URL,
+    createPayload: RUN_PAYLOAD,
+    failingStep: "config",
+    errorText: "x",
+    log: () => {},
+    fetchImpl,
+  });
+  assert.equal(buildId, null);
+  assert.equal(calls.length, 0);
+});
+
+test("reportEarlyFailure warns and returns null when the create is refused", async () => {
+  const { calls, fetchImpl } = recordingFetch(403);
+  const lines = [];
+  const buildId = await reportEarlyFailure({
+    env: { PRISMA_SERVICE_TOKEN: TOKEN },
+    apiUrl: API_URL,
+    createPayload: RUN_PAYLOAD,
+    failingStep: "install",
+    errorText: "x",
+    log: (line) => lines.push(line),
+    fetchImpl,
+  });
+  assert.equal(buildId, null);
+  assert.equal(calls.length, 1);
+  assert.ok(lines.some((line) => line.startsWith("::warning::build report failed (create)")));
+});
+
+test("reportEarlyFailure never throws when the credential exchange fails", async () => {
+  const lines = [];
+  const buildId = await reportEarlyFailure({
+    env: {
+      ACTIONS_ID_TOKEN_REQUEST_URL: "https://token.actions.test/get?run=1",
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: "runner-bearer",
+    },
+    apiUrl: API_URL,
+    createPayload: RUN_PAYLOAD,
+    failingStep: "config",
+    errorText: "x",
+    log: (line) => lines.push(line),
+    fetchImpl: async () => {
+      throw new Error("network down");
+    },
+  });
+  assert.equal(buildId, null);
+  assert.ok(lines.some((line) => line.startsWith("::warning::")));
 });

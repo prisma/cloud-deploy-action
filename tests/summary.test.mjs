@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:http";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -258,4 +259,54 @@ test("main.mjs keeps its outcome and exit code when the summary cannot be writte
   assert.equal(result.status, 1);
   assert.match(outputs, /^outcome=failed$/m);
   assert.match(result.stdout, /::warning::could not write the job summary/);
+});
+
+test("main.mjs reports an early failure to the run's build when it has a credential", async () => {
+  const requests = [];
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", () => {
+      requests.push({ method: req.method, url: req.url, body: raw ? JSON.parse(raw) : undefined });
+      res.writeHead(req.method === "POST" ? 201 : 200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ data: req.method === "POST" ? { id: "bld_early" } : {} }));
+    });
+  });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  const dir = mkdtempSync(join(tmpdir(), "summary-main-"));
+  const output = join(dir, "output");
+  try {
+    // spawn, not spawnSync: the stub API answers on this process's event loop.
+    const status = await new Promise((done, reject) => {
+      const child = spawn(process.execPath, [new URL("../main.mjs", import.meta.url).pathname], {
+        env: {
+          PATH: process.env.PATH,
+          INPUT_MODE: "bogus",
+          "INPUT_API-URL": `http://127.0.0.1:${server.address().port}`,
+          PRISMA_SERVICE_TOKEN: "tok-test",
+          GITHUB_REF_NAME: "main",
+          GITHUB_SHA: "095b237a1c0ffee",
+          GITHUB_RUN_ID: "11111",
+          GITHUB_OUTPUT: output,
+          GITHUB_STATE: join(dir, "state"),
+          GITHUB_STEP_SUMMARY: join(dir, "summary.md"),
+          RUNNER_TEMP: dir,
+        },
+        stdio: "ignore",
+      });
+      child.on("error", reject);
+      child.on("exit", done);
+    });
+    assert.equal(status, 1);
+    assert.deepEqual(
+      requests.map(({ method, url }) => `${method} ${url}`),
+      ["POST /v1/builds", "GET /v1/builds/bld_early", "PATCH /v1/builds/bld_early"],
+    );
+    assert.equal(requests[2].body.failingStep, "config");
+    const outputs = readFileSync(output, "utf8");
+    assert.match(outputs, /^build-id=bld_early$/m);
+    assert.match(outputs, /^outcome=failed$/m);
+  } finally {
+    server.close();
+  }
 });
