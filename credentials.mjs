@@ -2,6 +2,8 @@
 // otherwise a repository connected through the Prisma Console exchanges the
 // GitHub OIDC token of this run for a short-lived workspace token.
 
+import { clientHeaders } from "./report.mjs";
+
 const EXCHANGE_PATH = "/v1/auth/github-actions/token";
 const OIDC_AUDIENCE = "prisma-cloud";
 const TIMEOUT_MS = 15_000;
@@ -59,7 +61,7 @@ export async function resolveCredential(env, apiUrl, { fetchImpl = fetch } = {})
     `${apiUrl.replace(/\/$/, "")}${EXCHANGE_PATH}`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { ...clientHeaders(env), "content-type": "application/json" },
       body: JSON.stringify({ token: oidcToken }),
     },
   );

@@ -53,6 +53,23 @@ test("exchanges the OIDC token with the prisma-cloud audience", async () => {
   assert.equal(seen.length, 2);
 });
 
+test("the exchange names the action, and GitHub's own token request does not", async () => {
+  const headersByHost = {};
+  const fetchImpl = async (url, init) => {
+    headersByHost[new URL(url).host] = init.headers;
+    return url.startsWith("https://token.actions.test/")
+      ? jsonResponse(200, { value: "oidc-jwt" })
+      : jsonResponse(200, { data: { value: "tok-short", workspaceId: "ws_1" } });
+  };
+  await resolveCredential({ ...githubEnv, GITHUB_ACTION_REF: "v1" }, API_URL, {
+    fetchImpl,
+  });
+  assert.equal(headersByHost["api.example.test"]["x-prisma-client-name"], "cloud-deploy-action");
+  assert.equal(headersByHost["api.example.test"]["x-prisma-client-version"], "v1");
+  assert.equal(headersByHost["api.example.test"]["x-prisma-deploy-source"], "github-action");
+  assert.equal(headersByHost["token.actions.test"]["x-prisma-client-name"], undefined);
+});
+
 test("a 401 from the exchange resolves to denied", async () => {
   const fetchImpl = async (url) =>
     url.startsWith("https://token.actions.test/")
