@@ -117,8 +117,9 @@ export function makeReporter({ apiUrl, token, fetchImpl = fetch }) {
  * holds a queued build for this run (the workflow_run webhook creates it),
  * and the create converges on it through the run identity, so the cause
  * lands on that build instead of the platform's generic "workflow run
- * finished without reporting to the platform". Best-effort: never throws,
- * and a run without a credential reports nothing.
+ * finished without reporting to the platform". Jobs of one run share that
+ * build, so a cause another job already recorded is kept (failurePatch).
+ * Best-effort: never throws, and a run without a credential reports nothing.
  * Returns the build id, or null when nothing was reported.
  */
 export async function reportEarlyFailure({
@@ -143,8 +144,9 @@ export async function reportEarlyFailure({
   const reporter = makeReporter({ apiUrl, token: credential.token, fetchImpl });
   const buildId = await guardReport(() => reporter.create(createPayload), "create", log);
   if (!buildId) return null;
+  const existing = await guardReport(() => reporter.get(buildId), "read before failed", log);
   const result = await guardReport(
-    () => reporter.update(buildId, failurePatch(null, failingStep, errorText)),
+    () => reporter.update(buildId, failurePatch(existing, failingStep, errorText)),
     "failed",
     log,
   );

@@ -304,11 +304,13 @@ const RUN_PAYLOAD = {
   externalLogUrl: "https://github.com/org/repo/actions/runs/11111",
 };
 
-function recordingFetch(createStatus = 201) {
+function recordingFetch(createStatus = 201, existingBuild = {}) {
   const calls = [];
   const fetchImpl = async (url, init) => {
-    calls.push({ url, method: init.method, body: init.body ? JSON.parse(init.body) : undefined });
-    if (init.method === "POST") return jsonResponse(createStatus, { data: { id: BUILD_ID } });
+    const method = init.method ?? "GET";
+    calls.push({ url, method, body: init.body ? JSON.parse(init.body) : undefined });
+    if (method === "POST") return jsonResponse(createStatus, { data: { id: BUILD_ID } });
+    if (method === "GET") return jsonResponse(200, { data: existingBuild });
     return jsonResponse(200, { data: {} });
   };
   return { calls, fetchImpl };
@@ -328,13 +330,64 @@ test("reportEarlyFailure creates the run's build and records the cause on it", a
   assert.equal(buildId, BUILD_ID);
   assert.deepEqual(
     calls.map(({ url, method }) => `${method} ${url}`),
-    [`POST ${API_URL}/v1/builds`, `PATCH ${API_URL}/v1/builds/${BUILD_ID}`],
+    [
+      `POST ${API_URL}/v1/builds`,
+      `GET ${API_URL}/v1/builds/${BUILD_ID}`,
+      `PATCH ${API_URL}/v1/builds/${BUILD_ID}`,
+    ],
   );
   assert.deepEqual(calls[0].body.runIdentity, RUN_PAYLOAD.runIdentity);
-  assert.deepEqual(calls[1].body, {
+  assert.deepEqual(calls[2].body, {
     state: "failed",
     failingStep: "config",
     errorMessage: "bun not found on PATH",
+  });
+});
+
+test("reportEarlyFailure keeps a cause another job of the run already recorded", async () => {
+  const { calls, fetchImpl } = recordingFetch(201, {
+    failingStep: "install",
+    errorMessage: "install-auto-detect-failed",
+  });
+  const buildId = await reportEarlyFailure({
+    env: { PRISMA_SERVICE_TOKEN: TOKEN },
+    apiUrl: API_URL,
+    createPayload: RUN_PAYLOAD,
+    failingStep: "config",
+    errorText: "bun not found on PATH",
+    log: () => {},
+    fetchImpl,
+  });
+  assert.equal(buildId, BUILD_ID);
+  assert.deepEqual(calls.at(-1), {
+    url: `${API_URL}/v1/builds/${BUILD_ID}`,
+    method: "PATCH",
+    body: { state: "failed" },
+  });
+});
+
+test("reportEarlyFailure still records the cause when the read before it fails", async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    const method = init.method ?? "GET";
+    calls.push({ method, body: init.body ? JSON.parse(init.body) : undefined });
+    if (method === "POST") return jsonResponse(201, { data: { id: BUILD_ID } });
+    if (method === "GET") return jsonResponse(404, {});
+    return jsonResponse(200, { data: {} });
+  };
+  const buildId = await reportEarlyFailure({
+    env: { PRISMA_SERVICE_TOKEN: TOKEN },
+    apiUrl: API_URL,
+    createPayload: RUN_PAYLOAD,
+    failingStep: "config",
+    errorText: "bun not found on PATH",
+    log: () => {},
+    fetchImpl,
+  });
+  assert.equal(buildId, BUILD_ID);
+  assert.deepEqual(calls.at(-1), {
+    method: "PATCH",
+    body: { state: "failed", failingStep: "config", errorMessage: "bun not found on PATH" },
   });
 });
 
