@@ -151,6 +151,11 @@ Bun `1.3.10` or newer must be on the runner PATH. Add `oven-sh/setup-bun@v2` bef
 - Install detection covers npm and bun lockfiles. Repositories using pnpm or yarn need an explicit `install-command`, and deploys are not tested against them yet.
 - Workflow runs triggered from forks receive no OIDC token from GitHub, so they skip deploying unless a `PRISMA_SERVICE_TOKEN` secret is provided.
 
+## Troubleshooting
+
+- Connecting a repository in the Prisma Console runs a setup job that opens a pull request adding the Quick-start workflow above. If that job fails (its install step resolves dependencies from scratch, so it can fail on peer-dependency conflicts a committed lockfile would avoid), no pull request appears and nothing in the Console points back here. Add the Quick-start workflow by hand instead; the OIDC exchange works as soon as the repository is connected, whether or not the setup job succeeded.
+- The Console showing "Waiting for GitHub to start the first deployment" means no workflow run has deployed yet. Pushing to the default branch only helps once a workflow with this action exists on that branch; without one, the state never advances.
+
 ## Security
 
 The OIDC exchange keeps long-lived credentials out of your repository. GitHub mints a signed token for the specific run, Prisma verifies it against GitHub's keys with a pinned `prisma-cloud` audience, matches the repository by its numeric id against the workspace's connection, and answers with a token that expires after 30 minutes. The minted token is masked in logs.
