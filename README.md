@@ -137,6 +137,8 @@ Progress phases map to two server-side labels: `build` and `deploy`. The install
 
 On a successful deploy, the action also reports the deployed preview URL (`deployedUrl`) so the Console can link the live preview from the build. It is the `url` output: the root service's address, read from the structured `deploy` result the Prisma CLI prints to stdout. A CLI that prints no result line falls back to the first `.prisma.build` address in its output. Reporting the URL is best-effort like every other report: a missing address or a failed report call leaves the deploy successful.
 
+A run that fails before install, such as Bun missing or too old, an install command that cannot be detected, or an invalid `mode` or `stage`, still reports its cause when the run has a credential. The build the platform queued for the run is marked `failed` with a failing step (`config` or `install`) and the error text, so the Console shows why instead of "workflow run finished without reporting to the platform". Like every report, this is best-effort and never changes the run's outcome.
+
 On a failed deploy or destroy, the Prisma CLI reports its own failure to the same build (the action hands it the build via `PRISMA_BUILD_ID`), with the exact failing step and cause. The action and the post step defer to that report: they only send their generic messages when the build has no failure details yet.
 
 When a run has no credential, no `[report-stub]` log lines appear; the run is silent on reporting.

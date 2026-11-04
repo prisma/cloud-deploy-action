@@ -1,6 +1,8 @@
 // prisma/cloud-deploy-action: Builds API client.
 // On non-2xx or network failure this module throws; callers use guardReport
 // to convert those failures into warnings without aborting the deploy.
+import { resolveCredential } from "./credentials.mjs";
+
 const TIMEOUT_MS = 10_000;
 
 // Local copy of the retry helper from credentials.mjs. Sharing it would
@@ -107,4 +109,47 @@ export function makeReporter({ apiUrl, token, fetchImpl = fetch }) {
       await call("PATCH", `/v1/builds/${buildId}`, patch);
     },
   };
+}
+
+/**
+ * Reports a failure that happens before the run has a build report, such as
+ * a missing Bun or an undetectable install command. The platform already
+ * holds a queued build for this run (the workflow_run webhook creates it),
+ * and the create converges on it through the run identity, so the cause
+ * lands on that build instead of the platform's generic "workflow run
+ * finished without reporting to the platform". Jobs of one run share that
+ * build, so a cause another job already recorded is kept (failurePatch).
+ * Best-effort: never throws, and a run without a credential reports nothing.
+ * Returns the build id, or null when nothing was reported.
+ */
+export async function reportEarlyFailure({
+  env,
+  apiUrl,
+  createPayload,
+  failingStep,
+  errorText,
+  log,
+  fetchImpl = fetch,
+}) {
+  let credential;
+  try {
+    credential = await resolveCredential(env, apiUrl, { fetchImpl });
+  } catch (error) {
+    log(`::warning::build report failed (credential): ${error.message}`);
+    return null;
+  }
+  if (credential.source === "none" || credential.denied) return null;
+  if (credential.source === "oidc") log(`::add-mask::${credential.token}`);
+
+  const reporter = makeReporter({ apiUrl, token: credential.token, fetchImpl });
+  const buildId = await guardReport(() => reporter.create(createPayload), "create", log);
+  if (!buildId) return null;
+  const existing = await guardReport(() => reporter.get(buildId), "read before failed", log);
+  const result = await guardReport(
+    () => reporter.update(buildId, failurePatch(existing, failingStep, errorText)),
+    "failed",
+    log,
+  );
+  if (result !== null) log("report: failed");
+  return buildId;
 }
