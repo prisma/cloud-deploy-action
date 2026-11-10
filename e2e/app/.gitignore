@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.prisma-composer/
+.prisma/
+.alchemy/
+report.json
