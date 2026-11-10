@@ -3,6 +3,13 @@ name: ci
 on:
   push:
   pull_request:
+  # A new prisma release can break the arguments the action passes without any
+  # change here, so the newest CLIs are checked on a schedule too.
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [prisma-released]
 
 jobs:
   check:
@@ -19,15 +26,6 @@ jobs:
           node --check main.mjs
           node --check post.mjs
           node --check credentials.mjs
-      - name: Install the prisma CLIs the action's arguments are tested against
-        # rc.29 is the last CLI that takes --stage; rc.33 takes --environment.
-        run: |
-          bins=()
-          for version in 8.0.0-rc.29 8.0.0-rc.33; do
-            npm install --prefix "$RUNNER_TEMP/prisma-$version" --no-save --no-package-lock "prisma@$version"
-            bins+=("$RUNNER_TEMP/prisma-$version/node_modules/.bin/prisma")
-          done
-          echo "PRISMA_CLI_BINS=$(IFS=,; echo "${bins[*]}")" >> "$GITHUB_ENV"
       - name: Unit-test the action scripts
         run: node --test tests/*.test.mjs
       - name: Sanity-check action.yml
@@ -57,3 +55,45 @@ jobs:
             }
             console.log("action.yml sanity check passed");
           '
+
+  prisma-cli:
+    name: prisma ${{ matrix.prisma }} accepts the action's arguments
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # rc.29 is the last CLI that takes --stage. latest and dev are npm
+        # dist-tags, so a scheduled run tests each new release.
+        prisma: [8.0.0-rc.29, 8.0.0-rc.33, latest, dev]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install prisma@${{ matrix.prisma }}
+        run: npm install --prefix "$RUNNER_TEMP/prisma" --no-save --no-package-lock "prisma@${{ matrix.prisma }}"
+      - name: Run the action's arguments against the CLI
+        env:
+          PRISMA_CLI_BINS: ${{ runner.temp }}/prisma/node_modules/.bin/prisma
+        run: node --test tests/prisma-cli.test.mjs
+
+  open-issue-on-scheduled-failure:
+    needs: [check, prisma-cli]
+    if: failure() && github.event_name != 'push' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Scheduled CI fails: a prisma release may break the action"
+          number=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "Still failing: $RUN_URL"
+          else
+            gh issue create --title "$title" --body "The action's checks fail against a prisma CLI release, so deploys that use it may be broken: $RUN_URL"
+          fi

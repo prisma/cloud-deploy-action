@@ -7,9 +7,13 @@ import { test } from "node:test";
 import { composerArguments } from "../cli.mjs";
 
 // Runs the exact arguments the action builds against real `prisma` CLIs, so a
-// renamed or removed flag fails here instead of in users' deploys. CI installs
-// the CLIs and lists their bins, comma-separated, in PRISMA_CLI_BINS.
+// renamed or removed flag fails here instead of in users' deploys. CI's
+// prisma-cli job installs each CLI and lists its bin in PRISMA_CLI_BINS
+// (comma-separated).
 const bins = (process.env.PRISMA_CLI_BINS ?? "").split(",").filter(Boolean);
+if (process.env.CI && process.env.GITHUB_JOB === "prisma-cli" && bins.length === 0) {
+  throw new Error("PRISMA_CLI_BINS is empty in the prisma-cli job");
+}
 const REJECTED_ARGUMENTS = /CLI\.(INVALID_ARGUMENTS|COMMAND_MOVED|UNKNOWN_COMMAND)/;
 
 function run(bin, args, cwd) {
@@ -19,10 +23,6 @@ function run(bin, args, cwd) {
   const result = spawnSync(bin, args, { cwd, env, encoding: "utf8", timeout: 60_000 });
   return `${result.stdout}${result.stderr}`;
 }
-
-test("PRISMA_CLI_BINS lists at least one prisma CLI in CI", { skip: !process.env.CI }, () => {
-  assert.ok(bins.length > 0);
-});
 
 for (const bin of bins) {
   const version = run(bin, ["--version"]).trim().split("\n")[0];
