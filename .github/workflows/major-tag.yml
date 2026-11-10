@@ -1,0 +1,45 @@
+name: move major tag
+
+# Workflows use the action as prisma/cloud-deploy-action@v1, so v1 must point
+# at the newest v1.x.y release. This moves it when a release is published.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to point its major tag at, e.g. v1.11.0
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  move:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Move the major tag to the release, unless it already points at a newer one
+        run: |
+          if ! [[ $TAG =~ ^(v[0-9]+)\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$TAG is not a vX.Y.Z release tag"
+            exit 1
+          fi
+          major=${BASH_REMATCH[1]}
+          if git rev-parse -q --verify "refs/tags/$major" >/dev/null; then
+            current=$(git tag --points-at "refs/tags/$major" --list "$major.*.*" | sort -V | tail -1)
+            newest=$(printf '%s\n%s\n' "$current" "$TAG" | sort -V | tail -1)
+            if [ -n "$current" ] && [ "$newest" != "$TAG" ]; then
+              echo "$major already points at $current, which is newer than $TAG; leaving it"
+              exit 0
+            fi
+          fi
+          git tag -f "$major" "$TAG^{commit}"
+          git push --force origin "refs/tags/$major"
+          echo "$major now points at $TAG ($(git rev-parse "$TAG^{commit}"))"
