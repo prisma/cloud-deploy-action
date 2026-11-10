@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 
 /**
  * Returns [cmd, args, logLabel] for running the Composer command family of
@@ -18,7 +18,7 @@ import { join } from "node:path";
  *
  * @param {string} prismaVersion - `prisma` package version to fetch via bunx when the local bin is absent.
  * @param {boolean} binExists - Whether node_modules/.bin/prisma exists in the working directory.
- * @param {string[]} composerArgs - Arguments after `prisma`, e.g. ["deploy", "module.ts", "--stage", "x"].
+ * @param {string[]} composerArgs - Arguments after `prisma`, e.g. ["deploy", "--entry", "module.ts", "--environment", "x"].
  * @returns {[string, string[], string]}
  */
 // The oldest Bun the deploy runs on: Bun <= 1.3.9 omitted Content-Length on
@@ -44,6 +44,22 @@ export function isSupportedBunVersion(version) {
 }
 
 /**
+ * Whether `version` is 8.0.0-rc.`rc` or later. Unparseable versions count as
+ * current, so a new CLI never gets an old flag.
+ *
+ * @param {string} version - e.g. "8.0.0-rc.28".
+ * @param {number} rc
+ * @returns {boolean}
+ */
+function isAtLeastRc(version, rc) {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?/);
+  if (!match) return true;
+  const [major, minor, patch] = match.slice(1, 4).map(Number);
+  if (major !== 8 || minor !== 0 || patch !== 0) return major >= 8;
+  return match[4] === undefined || Number(match[4]) >= rc;
+}
+
+/**
  * Whether this `prisma` CLI takes the module as `--entry <path>`. From
  * 8.0.0-rc.28 (Composer 0.35.0) `deploy` rejects a positional module.
  *
@@ -51,25 +67,42 @@ export function isSupportedBunVersion(version) {
  * @returns {boolean}
  */
 export function takesEntryFlag(version) {
-  const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?/);
-  if (!match) return true;
-  const [major, minor, patch] = match.slice(1, 4).map(Number);
-  if (major !== 8 || minor !== 0 || patch !== 0) return major >= 8;
-  return match[4] === undefined || Number(match[4]) >= 28;
+  return isAtLeastRc(version, 28);
 }
 
 /**
- * The version of the `prisma` package installed in `workdir`, or "" when it
- * cannot be read.
+ * Whether this `prisma` CLI names the target as `--environment <name>`. From
+ * 8.0.0-rc.30 (Composer 0.36.0) `deploy` rejects `--stage`.
+ *
+ * @param {string} version - e.g. "8.0.0-rc.30".
+ * @returns {boolean}
+ */
+export function takesEnvironmentFlag(version) {
+  return isAtLeastRc(version, 30);
+}
+
+/**
+ * The `prisma` CLI `bun run` finds from `workdir`: the nearest
+ * node_modules/.bin/prisma in `workdir` or a parent, up to `root`, so a
+ * monorepo package finds the CLI hoisted to the repository root. Null when
+ * there is none. `version` is "" when the package version cannot be read.
  *
  * @param {string} workdir
- * @returns {string}
+ * @param {string} root - The repository root; the search does not go above it.
+ * @returns {{ version: string } | null}
  */
-export function installedPrismaVersion(workdir) {
+export function findLocalPrismaCli(workdir, root) {
+  for (let dir = workdir; ; dir = dirname(dir)) {
+    if (existsSync(join(dir, "node_modules", ".bin", "prisma"))) {
+      return { version: packageVersion(join(dir, "node_modules", "prisma", "package.json")) };
+    }
+    if (dirname(dir) === dir || relative(root, dir) === "") return null;
+  }
+}
+
+function packageVersion(manifestPath) {
   try {
-    const manifest = JSON.parse(
-      readFileSync(join(workdir, "node_modules", "prisma", "package.json"), "utf8"),
-    );
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     return typeof manifest.version === "string" ? manifest.version : "";
   } catch {
     return "";
@@ -81,13 +114,14 @@ export function installedPrismaVersion(workdir) {
  *
  * @param {"deploy" | "destroy"} mode
  * @param {string} modulePath
- * @param {string} stage - Empty for production.
+ * @param {string} environment - Empty for production.
  * @param {string} cliVersion - The version of the `prisma` CLI that will run.
  * @returns {string[]}
  */
-export function composerArguments(mode, modulePath, stage, cliVersion) {
+export function composerArguments(mode, modulePath, environment, cliVersion) {
   const entry = takesEntryFlag(cliVersion) ? ["--entry", modulePath] : [modulePath];
-  return [mode, ...entry, ...(stage ? ["--stage", stage] : [])];
+  const target = takesEnvironmentFlag(cliVersion) ? "--environment" : "--stage";
+  return [mode, ...entry, ...(environment ? [target, environment] : [])];
 }
 
 export function selectPrismaCliCommand(prismaVersion, binExists, composerArgs) {

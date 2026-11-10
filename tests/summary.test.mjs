@@ -67,7 +67,7 @@ const PRODUCTION_REPORT = {
 
 const RUN = {
   mode: "deploy",
-  stage: "",
+  environment: "",
   sha: "095b237a1c0ffee",
   ref: "main",
   buildId: "bld_igci22j8zecxd2t364y9wb5j",
@@ -108,8 +108,8 @@ Databases: \`agentEvents.subscriptions\` (\`db_subs\`), \`bloom.database\` (\`db
   );
 });
 
-test("a preview deploy names its stage", () => {
-  const summary = renderJobSummary({ ...RUN, stage: "feat-x", outcome: "succeeded", report: PRODUCTION_REPORT });
+test("a preview deploy names its environment", () => {
+  const summary = renderJobSummary({ ...RUN, environment: "feat-x", outcome: "succeeded", report: PRODUCTION_REPORT });
   assert.match(summary, /^### ✅ Deployed `pdp-control-plane-console` to `feat-x`\n/);
 });
 
@@ -123,7 +123,7 @@ test("a failed deploy shows the report's failure cause", () => {
     failure: { code: "DEPLOY.PREFLIGHT_FAILED", message: "1 required setting has no value: TOLT_PUBLIC_API_KEY." },
   };
   assert.equal(
-    renderJobSummary({ ...RUN, stage: "feat-x", outcome: "failed", report, cause: "deploy failed: exited with status 1" }),
+    renderJobSummary({ ...RUN, environment: "feat-x", outcome: "failed", report, cause: "deploy failed: exited with status 1" }),
     `### ❌ Deploy failed
 
 Commit \`095b237\` on \`main\` · build \`bld_igci22j8zecxd2t364y9wb5j\`
@@ -185,9 +185,9 @@ test("a skipped run says so and shows no build", () => {
   );
 });
 
-test("a successful destroy names the stage it removed", () => {
-  const summary = renderJobSummary({ ...RUN, mode: "destroy", stage: "feat-x", outcome: "succeeded", report: null });
-  assert.match(summary, /^### ✅ Destroyed stage `feat-x`\n/);
+test("a successful destroy names the environment it removed", () => {
+  const summary = renderJobSummary({ ...RUN, mode: "destroy", environment: "feat-x", outcome: "succeeded", report: null });
+  assert.match(summary, /^### ✅ Destroyed environment `feat-x`\n/);
 });
 
 test("readRunReport ignores a missing file, invalid JSON, and a report older than this run", () => {
@@ -201,7 +201,38 @@ test("readRunReport ignores a missing file, invalid JSON, and a report older tha
   assert.equal(readRunReport(path, Date.now() + 60_000), null);
 });
 
-test("readRunReport treats a report that is not the version 1 shape as missing", () => {
+test("readRunReport reads the version 2 report that prisma 8.0.0-rc.30 and later write", () => {
+  const dir = mkdtempSync(join(tmpdir(), "summary-test-"));
+  const path = join(dir, "report.json");
+  const { stage, ...rest } = PRODUCTION_REPORT;
+  const report = { ...rest, version: 2, environment: "production" };
+  writeFileSync(path, JSON.stringify(report));
+  assert.deepEqual(readRunReport(path, 0), report);
+});
+
+test("readRunReport reads a report of a later version that keeps the fields the action reads", () => {
+  const dir = mkdtempSync(join(tmpdir(), "summary-test-"));
+  const path = join(dir, "report.json");
+  const report = { ...PRODUCTION_REPORT, version: 3, added: true };
+  writeFileSync(path, JSON.stringify(report));
+  assert.deepEqual(readRunReport(path, 0), report);
+});
+
+test("readRunReport warns about a report from this run it cannot read", () => {
+  const dir = mkdtempSync(join(tmpdir(), "summary-test-"));
+  const path = join(dir, "report.json");
+  const warnings = [];
+  writeFileSync(path, "not json");
+  assert.equal(readRunReport(path, 0, (message) => warnings.push(message)), null);
+  writeFileSync(path, JSON.stringify({ ...PRODUCTION_REPORT, version: 9, nodes: {} }));
+  assert.equal(readRunReport(path, 0, (message) => warnings.push(message)), null);
+  assert.equal(readRunReport(join(dir, "missing.json"), 0, (message) => warnings.push(message)), null);
+  assert.equal(warnings.length, 2);
+  assert.match(warnings[0], /is not readable JSON/);
+  assert.match(warnings[1], /\(version 9\) lacks fields the action reads/);
+});
+
+test("readRunReport treats a report without the fields the action reads as missing", () => {
   const dir = mkdtempSync(join(tmpdir(), "summary-test-"));
   const path = join(dir, "report.json");
   const node = PRODUCTION_REPORT.nodes[5];
@@ -209,7 +240,7 @@ test("readRunReport treats a report that is not the version 1 shape as missing",
     null,
     [],
     { nodes: {} },
-    { ...PRODUCTION_REPORT, version: 2 },
+    { ...PRODUCTION_REPORT, version: "1" },
     { ...PRODUCTION_REPORT, outcome: "running" },
     { ...PRODUCTION_REPORT, failure: "boom" },
     { ...PRODUCTION_REPORT, nodes: [null] },

@@ -4,11 +4,15 @@ import { readFileSync, statSync } from "node:fs";
 
 const isObject = (value) => typeof value === "object" && value !== null;
 
-/** Whether `report` has the version 1 run report shape that renderJobSummary reads. */
-function isRunReportV1(report) {
+/**
+ * Whether `report` has the fields renderJobSummary and the URL outputs read.
+ * The version is not checked: a new version that keeps these fields (as
+ * version 2 did, renaming only `stage`) still works.
+ */
+function isRunReport(report) {
   return (
     isObject(report) &&
-    report.version === 1 &&
+    Number.isInteger(report.version) &&
     (report.outcome === "succeeded" || report.outcome === "failed") &&
     (report.app === null || typeof report.app === "string") &&
     (report.failure === null || isObject(report.failure)) &&
@@ -29,17 +33,33 @@ function isRunReportV1(report) {
 /**
  * The run report the deploy wrote during this run, or null when there is
  * none. A file older than `notBefore` (epoch ms) is left over from an earlier
- * run, so it counts as none; so does a file that is not valid JSON or not a
- * version 1 run report.
+ * run, so it counts as none. A file from this run that is not valid JSON or
+ * lacks the fields the action reads also counts as none, and `warn` says why.
+ *
+ * @param {string} path
+ * @param {number} notBefore
+ * @param {(message: string) => void} [warn]
  */
-export function readRunReport(path, notBefore) {
+export function readRunReport(path, notBefore, warn = () => {}) {
   try {
     if (statSync(path).mtimeMs < notBefore) return null;
-    const report = JSON.parse(readFileSync(path, "utf8"));
-    return isRunReportV1(report) ? report : null;
   } catch {
     return null;
   }
+  let report;
+  try {
+    report = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    warn(`the run report at ${path} is not readable JSON (${error.message}), so the job summary and URL outputs ignore it`);
+    return null;
+  }
+  if (!isRunReport(report)) {
+    warn(
+      `the run report at ${path} (version ${JSON.stringify(report?.version)}) lacks fields the action reads, so the job summary and URL outputs ignore it; the action may need an update for this prisma version`,
+    );
+    return null;
+  }
+  return report;
 }
 
 /**
@@ -49,7 +69,7 @@ export function readRunReport(path, notBefore) {
  * @param {object} run
  * @param {"succeeded" | "failed" | "skipped-no-credential"} run.outcome
  * @param {"deploy" | "destroy"} run.mode
- * @param {string} run.stage - Empty for production.
+ * @param {string} run.environment - Empty for production.
  * @param {string} [run.sha]
  * @param {string} [run.ref]
  * @param {string | null} [run.buildId]
@@ -58,8 +78,8 @@ export function readRunReport(path, notBefore) {
  * @param {Record<string, string>} [run.urls] - Service URLs from the deploy output, used when there is no report.
  * @param {string} [run.cause] - The action's own error text, used when the report names no failure.
  */
-export function renderJobSummary({ outcome, mode, stage, sha, ref, buildId, report, reportPath, urls = {}, cause }) {
-  const target = stage ? `\`${stage}\`` : "production";
+export function renderJobSummary({ outcome, mode, environment, sha, ref, buildId, report, reportPath, urls = {}, cause }) {
+  const target = environment ? `\`${environment}\`` : "production";
   const app = report?.app ? `\`${report.app}\` ` : "";
   const heading =
     outcome === "skipped-no-credential"
@@ -67,7 +87,7 @@ export function renderJobSummary({ outcome, mode, stage, sha, ref, buildId, repo
       : outcome !== "succeeded"
         ? `❌ ${mode === "destroy" ? "Destroy" : "Deploy"} failed`
         : mode === "destroy"
-          ? `✅ Destroyed stage ${target}`
+          ? `✅ Destroyed environment ${target}`
           : `✅ Deployed ${app}to ${target}`;
   const lines = [`### ${heading}`, ""];
 
