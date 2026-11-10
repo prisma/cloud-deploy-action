@@ -13,7 +13,7 @@ assert.ok(REPORT_PATH && existsSync(REPORT_PATH), `report-path output "${REPORT_
 const deadline = Date.now() + 3 * 60_000;
 for (;;) {
   try {
-    const response = await fetch(URL);
+    const response = await fetch(URL, { signal: AbortSignal.timeout(15_000) });
     if (response.ok) {
       const body = await response.json();
       assert.deepEqual(body, { environment: ENVIRONMENT });

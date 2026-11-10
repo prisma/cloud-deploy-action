@@ -169,7 +169,7 @@ Branch names reach the action as environment variables and are passed to the `pr
 
 Plain Node with zero dependencies and no build step. Inputs arrive as `INPUT_*` environment variables; outputs and state go to `$GITHUB_OUTPUT` and `$GITHUB_STATE`.
 
-CI tests the action in three ways. Unit tests cover the scripts. A matrix runs the exact arguments the action passes against real `prisma` CLIs, including the npm `latest` and `dev` tags. An end-to-end job runs the action itself (`uses: ./`) on the small app in `e2e/app`: it deploys to a new preview environment, checks the outputs and that the service answers, then destroys the environment. It runs once with the app's pinned versions and once moved to `prisma@latest`. The end-to-end job needs the `PRISMA_SERVICE_TOKEN` secret and the `PRISMA_WORKSPACE_ID` variable. CI also runs every 6 hours, and any failure on `main` or on a scheduled run posts to Slack through the `SLACK_WEBHOOK_URL` secret.
+CI tests the action in three ways. Unit tests cover the scripts. A matrix runs the exact arguments the action passes against real `prisma` CLIs, including the npm `latest` and `dev` tags. An end-to-end job runs the action itself (`uses: ./`) on the small app in `e2e/app`: it deploys to a new preview environment, checks the outputs and that the service answers, then destroys the environment. It runs once with the app's pinned versions and once moved to `prisma@latest`. The end-to-end job needs the `PRISMA_SERVICE_TOKEN` secret and the `PRISMA_WORKSPACE_ID` variable. CI also runs every 6 hours, and any failure on `main`, on a scheduled run or on a manual run posts to Slack. A sweep step removes `e2e-*` environments that earlier runs left behind through the `SLACK_WEBHOOK_URL` secret.
 
 ## License
 

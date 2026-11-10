@@ -88,16 +88,19 @@ jobs:
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
       (github.event_name != 'push' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         # pinned is the version in e2e/app's lockfile; latest moves the app to
         # prisma@latest and the Composer version it bundles.
         prisma: [pinned, latest]
+    # One job per matrix entry at a time, so the sweep never removes an
+    # environment another run is still testing.
+    concurrency:
+      group: e2e-${{ matrix.prisma }}
+      cancel-in-progress: false
     env:
-      PRISMA_SERVICE_TOKEN: ${{ secrets.PRISMA_SERVICE_TOKEN }}
-      PRISMA_WORKSPACE_ID: ${{ vars.PRISMA_WORKSPACE_ID }}
       ENVIRONMENT: e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.prisma }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -112,11 +115,19 @@ jobs:
           prisma=$(npm view prisma@latest version)
           composer=$(npm view "prisma@$prisma" dependencies.@prisma/composer-cli)
           echo "prisma $prisma, Composer $composer"
+          exact='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          if ! [[ $prisma =~ $exact && $composer =~ $exact ]]; then
+            echo "::error::could not resolve exact versions from npm: prisma \"$prisma\", Composer \"$composer\""
+            exit 1
+          fi
           npm pkg set "devDependencies.prisma=$prisma" "dependencies.@prisma/composer=$composer" "dependencies.@prisma/composer-prisma-cloud=$composer"
           bun install
       - name: Deploy with the action
         id: deploy
         uses: ./
+        timeout-minutes: 15
+        env:
+          PRISMA_SERVICE_TOKEN: ${{ secrets.PRISMA_SERVICE_TOKEN }}
         with:
           working-directory: e2e/app
           build-command: bun run build
@@ -127,17 +138,32 @@ jobs:
           URL: ${{ steps.deploy.outputs.url }}
           URLS: ${{ steps.deploy.outputs.urls }}
           REPORT_PATH: ${{ steps.deploy.outputs.report-path }}
+        timeout-minutes: 5
         run: node e2e/verify.mjs
       - name: Destroy the environment
-        if: always() && steps.deploy.outcome != 'skipped'
+        if: always() && steps.deploy.outcome != 'skipped' && steps.deploy.outputs.outcome != 'skipped-no-credential'
         working-directory: e2e/app
+        timeout-minutes: 10
+        env:
+          PRISMA_SERVICE_TOKEN: ${{ secrets.PRISMA_SERVICE_TOKEN }}
+          PRISMA_WORKSPACE_ID: ${{ vars.PRISMA_WORKSPACE_ID }}
         run: bun scripts/destroy.ts
+      - name: Destroy environments earlier runs left behind
+        if: always() && steps.deploy.outcome != 'skipped' && steps.deploy.outputs.outcome != 'skipped-no-credential'
+        working-directory: e2e/app
+        timeout-minutes: 10
+        env:
+          PRISMA_SERVICE_TOKEN: ${{ secrets.PRISMA_SERVICE_TOKEN }}
+          PRISMA_WORKSPACE_ID: ${{ vars.PRISMA_WORKSPACE_ID }}
+        run: bun scripts/sweep.ts
 
   notify-slack:
-    name: Report a failure on main or a scheduled run to Slack
+    name: Report a failure on main, a scheduled or a manual run to Slack
     needs: [check, prisma-cli, e2e]
+    # failure() misses a needed job that was cancelled or lost its runner.
     if: >-
-      failure() &&
+      always() &&
+      (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) &&
       github.event_name != 'pull_request' &&
       (github.event_name != 'push' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
@@ -146,9 +172,14 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           TEXT: >-
-            :rotating_light: prisma/cloud-deploy-action CI failed on a ${{ github.event_name }} run of ${{ github.ref_name }}.
-            A new prisma release may break deploys that use the action.
+            :rotating_light: prisma/cloud-deploy-action CI failed on a ${{ github.event_name }} run of ${{ github.ref_name }}
+            (check: ${{ needs.check.result }}, prisma CLI arguments: ${{ needs.prisma-cli.result }}, end-to-end deploy: ${{ needs.e2e.result }}).
+            Deploys that use the action may be broken.
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "::error::the SLACK_WEBHOOK_URL secret is not set, so this failure was not reported"
+            exit 1
+          fi
           jq -n --arg text "$TEXT" '{text: $text}' |
             curl --fail-with-body --silent --show-error -X POST -H 'Content-Type: application/json' --data @- "$SLACK_WEBHOOK_URL"
