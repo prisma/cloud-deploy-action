@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   composerArguments,
-  installedPrismaVersion,
+  findLocalPrismaCli,
   isSupportedBunVersion,
   selectPrismaCliCommand,
   takesEntryFlag,
@@ -170,13 +170,47 @@ test("takes --entry from rc.28 onward and positional before it", () => {
   assert.equal(takesEntryFlag("7.10.1"), false);
 });
 
-test("reads the installed prisma version, or empty when there is none", () => {
-  const workdir = mkdtempSync(join(tmpdir(), "cli-test-"));
-  assert.equal(installedPrismaVersion(workdir), "");
-  mkdirSync(join(workdir, "node_modules", "prisma"), { recursive: true });
-  writeFileSync(
-    join(workdir, "node_modules", "prisma", "package.json"),
-    JSON.stringify({ name: "prisma", version: "8.0.0-rc.27" }),
-  );
-  assert.equal(installedPrismaVersion(workdir), "8.0.0-rc.27");
+function installPrisma(dir, version) {
+  mkdirSync(join(dir, "node_modules", ".bin"), { recursive: true });
+  mkdirSync(join(dir, "node_modules", "prisma"), { recursive: true });
+  writeFileSync(join(dir, "node_modules", ".bin", "prisma"), "");
+  writeFileSync(join(dir, "node_modules", "prisma", "package.json"), JSON.stringify({ name: "prisma", version }));
+}
+
+test("finds the prisma CLI installed in the working directory", () => {
+  const root = mkdtempSync(join(tmpdir(), "cli-test-"));
+  assert.equal(findLocalPrismaCli(root, root), null);
+  installPrisma(root, "8.0.0-rc.33");
+  assert.deepEqual(findLocalPrismaCli(root, root), { version: "8.0.0-rc.33" });
+});
+
+test("finds the prisma CLI hoisted to the repository root of a monorepo", () => {
+  const root = mkdtempSync(join(tmpdir(), "cli-test-"));
+  const workdir = join(root, "apps", "web");
+  mkdirSync(workdir, { recursive: true });
+  installPrisma(root, "8.0.0-rc.33");
+  assert.deepEqual(findLocalPrismaCli(workdir, root), { version: "8.0.0-rc.33" });
+});
+
+test("prefers the prisma CLI nearest the working directory", () => {
+  const root = mkdtempSync(join(tmpdir(), "cli-test-"));
+  const workdir = join(root, "apps", "web");
+  installPrisma(root, "8.0.0-rc.29");
+  installPrisma(workdir, "8.0.0-rc.33");
+  assert.deepEqual(findLocalPrismaCli(workdir, root), { version: "8.0.0-rc.33" });
+});
+
+test("does not look above the repository root for the prisma CLI", () => {
+  const outside = mkdtempSync(join(tmpdir(), "cli-test-"));
+  const root = join(outside, "repo");
+  mkdirSync(root);
+  installPrisma(outside, "8.0.0-rc.33");
+  assert.equal(findLocalPrismaCli(root, root), null);
+});
+
+test("reports an empty version when the prisma package cannot be read", () => {
+  const root = mkdtempSync(join(tmpdir(), "cli-test-"));
+  mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
+  writeFileSync(join(root, "node_modules", ".bin", "prisma"), "");
+  assert.deepEqual(findLocalPrismaCli(root, root), { version: "" });
 });

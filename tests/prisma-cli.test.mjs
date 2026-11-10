@@ -39,6 +39,11 @@ for (const bin of bins) {
     });
   }
 
+  test(`prisma ${version} still rejects an unknown flag before its other checks`, () => {
+    const output = run(bin, ["deploy", "--no-such-flag", "x"], mkdtempSync(join(tmpdir(), "prisma-cli-")));
+    assert.match(output, /CLI\.INVALID_ARGUMENTS/, output);
+  });
+
   test(`prisma ${version} accepts the destroy arguments`, (t) => {
     const cwd = mkdtempSync(join(tmpdir(), "prisma-cli-"));
     const args = composerArguments("destroy", "module.ts", "pr-7", version);

@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 
 /**
  * Returns [cmd, args, logLabel] for running the Composer command family of
@@ -82,17 +82,27 @@ export function takesEnvironmentFlag(version) {
 }
 
 /**
- * The version of the `prisma` package installed in `workdir`, or "" when it
- * cannot be read.
+ * The `prisma` CLI `bun run` finds from `workdir`: the nearest
+ * node_modules/.bin/prisma in `workdir` or a parent, up to `root`, so a
+ * monorepo package finds the CLI hoisted to the repository root. Null when
+ * there is none. `version` is "" when the package version cannot be read.
  *
  * @param {string} workdir
- * @returns {string}
+ * @param {string} root - The repository root; the search does not go above it.
+ * @returns {{ version: string } | null}
  */
-export function installedPrismaVersion(workdir) {
+export function findLocalPrismaCli(workdir, root) {
+  for (let dir = workdir; ; dir = dirname(dir)) {
+    if (existsSync(join(dir, "node_modules", ".bin", "prisma"))) {
+      return { version: packageVersion(join(dir, "node_modules", "prisma", "package.json")) };
+    }
+    if (dirname(dir) === dir || relative(root, dir) === "") return null;
+  }
+}
+
+function packageVersion(manifestPath) {
   try {
-    const manifest = JSON.parse(
-      readFileSync(join(workdir, "node_modules", "prisma", "package.json"), "utf8"),
-    );
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     return typeof manifest.version === "string" ? manifest.version : "";
   } catch {
     return "";

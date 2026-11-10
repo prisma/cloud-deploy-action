@@ -9,7 +9,7 @@ import { selectBuildCommand } from "./build.mjs";
 import {
   MINIMUM_BUN_VERSION,
   composerArguments,
-  installedPrismaVersion,
+  findLocalPrismaCli,
   isSupportedBunVersion,
   selectPrismaCliCommand,
 } from "./cli.mjs";
@@ -290,12 +290,12 @@ if (buildId) {
 
 await runPhase("install", installCommand);
 
-const localBin = join(workdir, "node_modules", ".bin", "prisma");
-const hasLocalBin = existsSync(localBin);
+const localCli = findLocalPrismaCli(workdir, resolve(process.env.GITHUB_WORKSPACE ?? "."));
+const hasLocalBin = localCli !== null;
 if (!hasLocalBin && !prismaVersion) {
   await fail(
     "config",
-    `no prisma CLI in ${join(workdir, "node_modules")}: add prisma as a devDependency at the version that matches your app's @prisma/composer (the CLI and the app must be on the same Composer version), or set the prisma-version input`,
+    `no prisma CLI in node_modules from ${workdir} up to the repository root: add prisma as a devDependency at the version that matches your app's @prisma/composer (the CLI and the app must be on the same Composer version), or set the prisma-version input`,
   );
 }
 
@@ -320,7 +320,7 @@ const composerArgs = composerArguments(
   mode,
   modulePath,
   environment,
-  hasLocalBin ? installedPrismaVersion(workdir) : prismaVersion,
+  localCli ? localCli.version : prismaVersion,
 );
 const [cliCmd, cliArgs, cliLabel] = selectPrismaCliCommand(
   prismaVersion,

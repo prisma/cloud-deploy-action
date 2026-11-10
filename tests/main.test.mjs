@@ -67,5 +67,5 @@ test("refuses to deploy a repository without a prisma CLI when no prisma-version
   );
   assert.equal(result.status, 1);
   assert.match(outputs, /^outcome=failed$/m);
-  assert.match(result.stdout, /::error::config failed: no prisma CLI in .*: add prisma as a devDependency/);
+  assert.match(result.stdout, /::error::config failed: no prisma CLI in node_modules from .* up to the repository root: add prisma as a devDependency/);
 });
