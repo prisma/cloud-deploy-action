@@ -36,7 +36,7 @@ async function finishedRun(runId: string): Promise<{ createdAt: number } | null>
   return run.status === 'completed' ? { createdAt: Date.parse(run.created_at) } : null;
 }
 
-let stuck = 0;
+const undestroyedOld: string[] = [];
 let destroyed = 0;
 for (const name of environments()) {
   const runId = name.match(/^e2e-(\d+)-\d+-[a-z]+$/)?.[1];
@@ -45,10 +45,13 @@ for (const name of environments()) {
   if (!run) continue;
   if (await destroyEnvironment(name)) {
     destroyed++;
-  } else if (Date.now() - run.createdAt > DAY_MS && environments().includes(name)) {
-    stuck++;
+  } else if (Date.now() - run.createdAt > DAY_MS) {
+    undestroyedOld.push(name);
   }
 }
+// Another sweep may have removed an environment this one failed to destroy.
+const remaining = undestroyedOld.length > 0 ? environments() : [];
+const stuck = undestroyedOld.filter((name) => remaining.includes(name)).length;
 console.log(`swept ${destroyed} leftover environment(s)`);
 if (stuck > 0) {
   console.error(`::error::${stuck} leftover environment(s) older than a day could not be destroyed; see the README for removing one by hand`);

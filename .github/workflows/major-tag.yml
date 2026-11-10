@@ -28,7 +28,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          git fetch --tags --force --quiet
           releases=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1000 --json tagName --jq '.[].tagName' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+          # A release can outlive its git tag; choose only among releases that have one.
+          releases=$(for tag in $releases; do git rev-parse -q --verify "refs/tags/$tag" >/dev/null && echo "$tag"; done)
           if [ -z "$releases" ]; then
             echo "::error::found no published vX.Y.Z releases"
             exit 1
