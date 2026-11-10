@@ -45,7 +45,7 @@ function finish(outcome, { cause, urls } = {}) {
       const summary = renderJobSummary({
         outcome,
         mode,
-        stage,
+        environment,
         sha: process.env.GITHUB_SHA,
         ref: branch,
         buildId,
@@ -124,7 +124,7 @@ async function runPhase(phase, command, args, capture = false) {
   log(`$ ${printable}`);
   // String commands come from the consuming repo's own workflow inputs and
   // run through a shell verbatim; argv arrays never touch a shell, so
-  // event-controlled values like the stage name cannot inject.
+  // event-controlled values like the environment name cannot inject.
   const result = await runCommand(command, args, { cwd: workdir, capture });
   log("::endgroup::");
   if (result.status !== 0) {
@@ -140,7 +140,7 @@ async function runPhase(phase, command, args, capture = false) {
 
 const mode = input("mode") || "deploy";
 const modulePath = input("module") || "module.ts";
-const prismaVersion = input("prisma-version") || "8.0.0-rc.9";
+const prismaVersion = input("prisma-version");
 const workdir = resolve(process.env.GITHUB_WORKSPACE ?? ".", input("working-directory") || ".");
 const repository = process.env.GITHUB_REPOSITORY ?? "";
 const branch = process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || "";
@@ -178,22 +178,30 @@ const defaultBranch = (() => {
   }
 })();
 
-// The default branch deploys to production, which has no stage name; every
-// other branch deploys to a stage named after it.
-const stage = input("stage") || (branch === defaultBranch ? "" : branch);
+// `stage` is the input's name from before the CLI renamed stages to environments.
+const explicitEnvironment = input("environment") || input("stage");
+if (input("environment") && input("stage") && input("environment") !== input("stage")) {
+  await failEarly(
+    "config",
+    `the environment input ("${input("environment")}") and its older name, the stage input ("${input("stage")}"), disagree; set only environment`,
+  );
+}
+// The default branch deploys to production; every other branch deploys to an
+// environment named after it.
+const environment = explicitEnvironment || (branch === defaultBranch ? "" : branch);
 if (mode !== "deploy" && mode !== "destroy") {
   await failEarly("config", `unknown mode "${mode}" (expected "deploy" or "destroy")`);
 }
-if (!input("stage") && !branch) {
-  await failEarly("config", "cannot derive a stage: the event context has no branch; set the stage input");
+if (!explicitEnvironment && !branch) {
+  await failEarly("config", "cannot derive an environment: the event context has no branch; set the environment input");
 }
-if (mode === "destroy" && !stage) {
+if (mode === "destroy" && !environment) {
   await failEarly(
     "config",
-    "destroy refuses to run without a resolved stage; the default branch derives to production, so pass the stage input explicitly",
+    "destroy refuses to run without a resolved environment; the default branch derives to production, so pass the environment input explicitly",
   );
 }
-log(stage ? `${mode} target: --stage ${stage}` : `${mode} target: production (default branch, no --stage)`);
+log(environment ? `${mode} target: environment ${environment}` : `${mode} target: production (default branch)`);
 
 // Bun is required: composer runs under Bun, not Node. The generated Prisma
 // deploy workflow adds `oven-sh/setup-bun@v2` for every project.
@@ -282,6 +290,15 @@ if (buildId) {
 
 await runPhase("install", installCommand);
 
+const localBin = join(workdir, "node_modules", ".bin", "prisma");
+const hasLocalBin = existsSync(localBin);
+if (!hasLocalBin && !prismaVersion) {
+  await fail(
+    "config",
+    `no prisma CLI in ${join(workdir, "node_modules")}: add prisma as a devDependency at the version that matches your app's @prisma/composer (the CLI and the app must be on the same Composer version), or set the prisma-version input`,
+  );
+}
+
 // Destroy builds too, by composer's own requirement: "destroy evaluates the
 // same stack program as deploy, which packages the built artifacts — so the
 // app must be built first" (its error text on 0.6.0). We wanted destroy to
@@ -297,15 +314,12 @@ if (buildCommand === null) {
   await runPhase("build", buildCommand);
 }
 
-// The stage reaches the argv array straight from the environment; it is
+// The environment name reaches the argv array straight from the event; it is
 // never interpolated into a shell string.
-//
-const localBin = join(workdir, "node_modules", ".bin", "prisma");
-const hasLocalBin = existsSync(localBin);
 const composerArgs = composerArguments(
   mode,
   modulePath,
-  stage,
+  environment,
   hasLocalBin ? installedPrismaVersion(workdir) : prismaVersion,
 );
 const [cliCmd, cliArgs, cliLabel] = selectPrismaCliCommand(

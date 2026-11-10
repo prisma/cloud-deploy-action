@@ -19,6 +19,15 @@ jobs:
           node --check main.mjs
           node --check post.mjs
           node --check credentials.mjs
+      - name: Install the prisma CLIs the action's arguments are tested against
+        # rc.29 is the last CLI that takes --stage; rc.33 takes --environment.
+        run: |
+          bins=()
+          for version in 8.0.0-rc.29 8.0.0-rc.33; do
+            npm install --prefix "$RUNNER_TEMP/prisma-$version" --no-save --no-package-lock "prisma@$version"
+            bins+=("$RUNNER_TEMP/prisma-$version/node_modules/.bin/prisma")
+          done
+          echo "PRISMA_CLI_BINS=$(IFS=,; echo "${bins[*]}")" >> "$GITHUB_ENV"
       - name: Unit-test the action scripts
         run: node --test tests/*.test.mjs
       - name: Sanity-check action.yml
@@ -32,7 +41,7 @@ jobs:
               ["runs.main: main.mjs", /^  main: main\.mjs$/m],
               ["runs.post: post.mjs", /^  post: post\.mjs$/m],
             ];
-            for (const name of ["build-command", "install-command", "module", "mode", "stage", "prisma-version", "working-directory", "api-url"]) {
+            for (const name of ["build-command", "install-command", "module", "mode", "environment", "stage", "prisma-version", "working-directory", "api-url"]) {
               checks.push([`input ${name}`, new RegExp(`^  ${name}:$`, "m")]);
             }
             for (const name of ["outcome", "build-id", "url", "urls"]) {

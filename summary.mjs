@@ -49,7 +49,7 @@ export function readRunReport(path, notBefore) {
  * @param {object} run
  * @param {"succeeded" | "failed" | "skipped-no-credential"} run.outcome
  * @param {"deploy" | "destroy"} run.mode
- * @param {string} run.stage - Empty for production.
+ * @param {string} run.environment - Empty for production.
  * @param {string} [run.sha]
  * @param {string} [run.ref]
  * @param {string | null} [run.buildId]
@@ -58,8 +58,8 @@ export function readRunReport(path, notBefore) {
  * @param {Record<string, string>} [run.urls] - Service URLs from the deploy output, used when there is no report.
  * @param {string} [run.cause] - The action's own error text, used when the report names no failure.
  */
-export function renderJobSummary({ outcome, mode, stage, sha, ref, buildId, report, reportPath, urls = {}, cause }) {
-  const target = stage ? `\`${stage}\`` : "production";
+export function renderJobSummary({ outcome, mode, environment, sha, ref, buildId, report, reportPath, urls = {}, cause }) {
+  const target = environment ? `\`${environment}\`` : "production";
   const app = report?.app ? `\`${report.app}\` ` : "";
   const heading =
     outcome === "skipped-no-credential"
@@ -67,7 +67,7 @@ export function renderJobSummary({ outcome, mode, stage, sha, ref, buildId, repo
       : outcome !== "succeeded"
         ? `❌ ${mode === "destroy" ? "Destroy" : "Deploy"} failed`
         : mode === "destroy"
-          ? `✅ Destroyed stage ${target}`
+          ? `✅ Destroyed environment ${target}`
           : `✅ Deployed ${app}to ${target}`;
   const lines = [`### ${heading}`, ""];
 

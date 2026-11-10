@@ -67,7 +67,7 @@ const PRODUCTION_REPORT = {
 
 const RUN = {
   mode: "deploy",
-  stage: "",
+  environment: "",
   sha: "095b237a1c0ffee",
   ref: "main",
   buildId: "bld_igci22j8zecxd2t364y9wb5j",
@@ -108,8 +108,8 @@ Databases: \`agentEvents.subscriptions\` (\`db_subs\`), \`bloom.database\` (\`db
   );
 });
 
-test("a preview deploy names its stage", () => {
-  const summary = renderJobSummary({ ...RUN, stage: "feat-x", outcome: "succeeded", report: PRODUCTION_REPORT });
+test("a preview deploy names its environment", () => {
+  const summary = renderJobSummary({ ...RUN, environment: "feat-x", outcome: "succeeded", report: PRODUCTION_REPORT });
   assert.match(summary, /^### ✅ Deployed `pdp-control-plane-console` to `feat-x`\n/);
 });
 
@@ -123,7 +123,7 @@ test("a failed deploy shows the report's failure cause", () => {
     failure: { code: "DEPLOY.PREFLIGHT_FAILED", message: "1 required setting has no value: TOLT_PUBLIC_API_KEY." },
   };
   assert.equal(
-    renderJobSummary({ ...RUN, stage: "feat-x", outcome: "failed", report, cause: "deploy failed: exited with status 1" }),
+    renderJobSummary({ ...RUN, environment: "feat-x", outcome: "failed", report, cause: "deploy failed: exited with status 1" }),
     `### ❌ Deploy failed
 
 Commit \`095b237\` on \`main\` · build \`bld_igci22j8zecxd2t364y9wb5j\`
@@ -185,9 +185,9 @@ test("a skipped run says so and shows no build", () => {
   );
 });
 
-test("a successful destroy names the stage it removed", () => {
-  const summary = renderJobSummary({ ...RUN, mode: "destroy", stage: "feat-x", outcome: "succeeded", report: null });
-  assert.match(summary, /^### ✅ Destroyed stage `feat-x`\n/);
+test("a successful destroy names the environment it removed", () => {
+  const summary = renderJobSummary({ ...RUN, mode: "destroy", environment: "feat-x", outcome: "succeeded", report: null });
+  assert.match(summary, /^### ✅ Destroyed environment `feat-x`\n/);
 });
 
 test("readRunReport ignores a missing file, invalid JSON, and a report older than this run", () => {

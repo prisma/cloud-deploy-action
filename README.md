@@ -54,7 +54,7 @@ jobs:
       - uses: prisma/cloud-deploy-action@v1
         with:
           mode: destroy
-          stage: ${{ github.event.ref }}
+          environment: ${{ github.event.ref }}
 ```
 
 Connecting a repository through the Prisma Console creates this setup for you with a pull request.
@@ -75,13 +75,13 @@ An explicit token always wins over the OIDC exchange.
 
 ## How it works
 
-Each run has three phases: install, build, and deploy. Your workflow owns checkout and the toolchain. The action runs your install and build commands exactly as configured, and it never inspects your repository to decide how to build. A repository with no build script — one that runs its source directly — sets `build-command: none` to skip the build phase. The deploy phase hands your built app to the top-level `deploy` command of the unified [`prisma` CLI](https://www.npmjs.com/package/prisma) (`prisma deploy`, since `8.0.0-rc.8`; earlier versions used the removed `prisma composer` prefix and are not supported), running it under Bun. Repositories with a `prisma` devDependency deploy with their own installed version; everything else uses the pinned `prisma-version` fallback fetched via bunx. Bun `1.3.10` or newer must be on the runner PATH — add `oven-sh/setup-bun@v2` before this action (it installs the latest by default). The generated Prisma deploy workflow includes that step automatically.
+Each run has three phases: install, build, and deploy. Your workflow owns checkout and the toolchain. The action runs your install and build commands exactly as configured, and it never inspects your repository to decide how to build. A repository with no build script — one that runs its source directly — sets `build-command: none` to skip the build phase. The deploy phase hands your built app to the top-level `deploy` command of the unified [`prisma` CLI](https://www.npmjs.com/package/prisma) (`prisma deploy`, since `8.0.0-rc.8`; earlier versions used the removed `prisma composer` prefix and are not supported), running it under Bun. The action runs the repository's own `prisma` CLI, which the repository must carry as a devDependency: the CLI and the app must be on the same Composer version, and only the repository's lockfile can guarantee that. A repository without it fails with an error that says so, unless it sets `prisma-version`. Bun `1.3.10` or newer must be on the runner PATH — add `oven-sh/setup-bun@v2` before this action (it installs the latest by default). The generated Prisma deploy workflow includes that step automatically.
 
 Deploy targets follow your branches:
 
 - A push to the default branch deploys to production.
-- A push to any other branch deploys to a preview stage named after the branch.
-- Deleting a branch destroys its preview stage (`mode: destroy` — currently broken against the CLI, see Known limitations; Console-connected repositories get teardown from the platform's branch automation instead).
+- A push to any other branch deploys to a preview environment named after the branch.
+- Deleting a branch destroys its preview environment (`mode: destroy` — currently broken against the CLI, see Known limitations; Console-connected repositories get teardown from the platform's branch automation instead).
 
 The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the environment wins; otherwise the action requests the run's GitHub OIDC token and exchanges it with Prisma for a workspace token that expires after 30 minutes. When neither path yields a credential, or the exchange refuses the repository, the run prints a notice, sets its `outcome` output to `skipped-no-credential`, and exits successfully without deploying. Forks and unconnected repositories keep a green CI. A failure of the exchange itself, such as an outage, fails the run instead of skipping it.
 
@@ -93,8 +93,9 @@ The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the en
 | `install-command` | auto | Detected from the lockfile: `npm ci` for `package-lock.json`, `bun install --frozen-lockfile` for a bun lockfile. Set this to override. pnpm and yarn are not supported yet. |
 | `module` | `module.ts` | Path to your app's Composer module. On `prisma` 8.0.0-rc.28 and later the action passes it as `--entry`, which overrides the `entry` in `prisma.config.ts`. |
 | `mode` | `deploy` | `deploy` or `destroy`. |
-| `stage` | derived | Empty derives the stage from the branch: the default branch deploys to production, any other branch name becomes the stage. `destroy` requires a resolved stage. |
-| `prisma-version` | `8.0.0-rc.9` | The `prisma` package version the action fetches via bunx — the fallback for repositories that do not carry the `prisma` devDependency. Repositories that do carry it deploy with their own installed version. |
+| `environment` | derived | Empty derives the environment from the branch: the default branch deploys to production, any other branch name becomes the environment. `destroy` requires a resolved environment. On `prisma` 8.0.0-rc.30 and later the action passes it as `--environment`; earlier versions get `--stage`. |
+| `stage` | empty | The older name for `environment`, kept so existing workflows keep working. Setting both to different values fails the run. |
+| `prisma-version` | empty | Runs this `prisma` version via bunx when the repository has no `prisma` devDependency. Empty refuses to deploy such a repository. Repositories that carry the devDependency always deploy with their own installed version. |
 | `working-directory` | `.` | Where install, build, and deploy run. |
 | `api-url` | `https://api.prisma.io` | Prisma API base URL for the OIDC credential exchange. |
 
@@ -137,7 +138,7 @@ Progress phases map to two server-side labels: `build` and `deploy`. The install
 
 On a successful deploy, the action also reports the deployed preview URL (`deployedUrl`) so the Console can link the live preview from the build. It is the `url` output: the root service's address, read from the structured `deploy` result the Prisma CLI prints to stdout. A CLI that prints no result line falls back to the first `.prisma.build` address in its output. Reporting the URL is best-effort like every other report: a missing address or a failed report call leaves the deploy successful.
 
-A run that fails before install, such as Bun missing or too old, an install command that cannot be detected, or an invalid `mode` or `stage`, still reports its cause when the run has a credential. The build the platform queued for the run is marked `failed` with a failing step (`config` or `install`) and the error text, so the Console shows why instead of "workflow run finished without reporting to the platform". Like every report, this is best-effort and never changes the run's outcome.
+A run that fails before install, such as Bun missing or too old, an install command that cannot be detected, or an invalid `mode` or `environment`, still reports its cause when the run has a credential. The build the platform queued for the run is marked `failed` with a failing step (`config` or `install`) and the error text, so the Console shows why instead of "workflow run finished without reporting to the platform". Like every report, this is best-effort and never changes the run's outcome.
 
 On a failed deploy or destroy, the Prisma CLI reports its own failure to the same build (the action hands it the build via `PRISMA_BUILD_ID`), with the exact failing step and cause. The action and the post step defer to that report: they only send their generic messages when the build has no failure details yet.
 
@@ -149,7 +150,7 @@ Bun `1.3.10` or newer must be on the runner PATH. Add `oven-sh/setup-bun@v2` bef
 
 ## Known limitations
 
-- `mode: destroy` does not work against the current CLI: `8.0.0-rc.9` has no top-level `destroy` command (and no `branch delete`), so the destroy invocation fails. The action keeps the mode and its invocation shape while the CLI's teardown story is settled. In practice, repositories connected through the Prisma Console get preview teardown from the platform's branch automation when a branch is deleted, without running this action.
+- `mode: destroy` does not work against the current CLI: `prisma` up to at least `8.0.0-rc.33` has no `destroy` command, so the destroy invocation fails. Composer removes one environment through the `destroy` operation of `@prisma/composer/control` instead. The action keeps the mode and its invocation shape while the CLI's teardown story is settled. In practice, repositories connected through the Prisma Console get preview teardown from the platform's branch automation when a branch is deleted, without running this action.
 - Install detection covers npm and bun lockfiles. Repositories using pnpm or yarn need an explicit `install-command`, and deploys are not tested against them yet.
 - Workflow runs triggered from forks receive no OIDC token from GitHub, so they skip deploying unless a `PRISMA_SERVICE_TOKEN` secret is provided.
 
@@ -162,7 +163,7 @@ Bun `1.3.10` or newer must be on the runner PATH. Add `oven-sh/setup-bun@v2` bef
 
 The OIDC exchange keeps long-lived credentials out of your repository. GitHub mints a signed token for the specific run, Prisma verifies it against GitHub's keys with a pinned `prisma-cloud` audience, matches the repository by its numeric id against the workspace's connection, and answers with a token that expires after 30 minutes. The minted token is masked in logs.
 
-Branch names reach the action as environment variables and are passed to the Composer CLI as single arguments without a shell, so branch names cannot inject commands. Your install and build commands are your own configuration and run through a shell exactly as written.
+Branch names reach the action as environment variables and are passed to the `prisma` CLI as single arguments without a shell, so branch names cannot inject commands. Your install and build commands are your own configuration and run through a shell exactly as written.
 
 ## Development
 

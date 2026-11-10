@@ -6,6 +6,7 @@ import {
   isSupportedBunVersion,
   selectPrismaCliCommand,
   takesEntryFlag,
+  takesEnvironmentFlag,
 } from "../cli.mjs";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,11 +34,11 @@ test("falls back to bunx with the input version when the bin is absent", () => {
   assert.equal(label, "composer=prisma@8.0.0-rc.7 (bunx fallback)");
 });
 
-test("deploy args pass through verbatim on the local CLI, stage included", () => {
+test("deploy args pass through verbatim on the local CLI, environment included", () => {
   const [, args] = selectPrismaCliCommand("8.1.0", true, [
     "deploy",
     "app/module.ts",
-    "--stage",
+    "--environment",
     "feat/x",
   ]);
   assert.deepEqual(args, [
@@ -47,7 +48,7 @@ test("deploy args pass through verbatim on the local CLI, stage included", () =>
 
     "deploy",
     "app/module.ts",
-    "--stage",
+    "--environment",
     "feat/x",
   ]);
 });
@@ -56,7 +57,7 @@ test("destroy args pass through verbatim on the bunx fallback", () => {
   const [, args] = selectPrismaCliCommand("8.1.0", false, [
     "destroy",
     "module.ts",
-    "--stage",
+    "--environment",
     "feat/x",
   ]);
   assert.deepEqual(args, [
@@ -67,7 +68,7 @@ test("destroy args pass through verbatim on the bunx fallback", () => {
 
     "destroy",
     "module.ts",
-    "--stage",
+    "--environment",
     "feat/x",
   ]);
 });
@@ -106,13 +107,43 @@ test("names the module with --entry for a prisma CLI from 8.0.0-rc.28", () => {
     "--entry",
     "module.ts",
   ]);
-  assert.deepEqual(composerArguments("deploy", "app/module.ts", "pr-7", "8.1.0"), [
+  assert.deepEqual(composerArguments("deploy", "app/module.ts", "pr-7", "8.0.0-rc.29"), [
     "deploy",
     "--entry",
     "app/module.ts",
     "--stage",
     "pr-7",
   ]);
+});
+
+test("names the target with --environment for a prisma CLI from 8.0.0-rc.30", () => {
+  assert.deepEqual(composerArguments("deploy", "module.ts", "pr-7", "8.0.0-rc.33"), [
+    "deploy",
+    "--entry",
+    "module.ts",
+    "--environment",
+    "pr-7",
+  ]);
+  assert.deepEqual(composerArguments("destroy", "module.ts", "pr-7", "8.1.0"), [
+    "destroy",
+    "--entry",
+    "module.ts",
+    "--environment",
+    "pr-7",
+  ]);
+});
+
+test("passes no target flag for production", () => {
+  assert.deepEqual(composerArguments("deploy", "module.ts", "", "8.0.0-rc.33"), ["deploy", "--entry", "module.ts"]);
+});
+
+test("takes --environment from rc.30 onward and --stage before it", () => {
+  assert.equal(takesEnvironmentFlag("8.0.0-rc.29"), false);
+  assert.equal(takesEnvironmentFlag("8.0.0-rc.30"), true);
+  assert.equal(takesEnvironmentFlag("8.0.0-rc.33"), true);
+  assert.equal(takesEnvironmentFlag("8.0.0"), true);
+  assert.equal(takesEnvironmentFlag("8.0.1-dev.3"), true);
+  assert.equal(takesEnvironmentFlag(""), true);
 });
 
 test("passes the module positionally for a prisma CLI before 8.0.0-rc.28", () => {
