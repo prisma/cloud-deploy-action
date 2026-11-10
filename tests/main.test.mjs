@@ -44,6 +44,11 @@ test("the stage input still names the environment", () => {
 });
 
 test("the environment input names the environment", () => {
+  const { result } = runMain({ environment: "pr-7" });
+  assert.match(result.stdout, /^deploy target: environment pr-7$/m);
+});
+
+test("accepts environment and stage inputs that agree", () => {
   const { result } = runMain({ environment: "pr-7", stage: "pr-7" });
   assert.match(result.stdout, /^deploy target: environment pr-7$/m);
 });

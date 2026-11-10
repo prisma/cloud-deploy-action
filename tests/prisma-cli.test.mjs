@@ -15,6 +15,8 @@ if (process.env.CI && process.env.GITHUB_JOB === "prisma-cli" && bins.length ===
   throw new Error("PRISMA_CLI_BINS is empty in the prisma-cli job");
 }
 const REJECTED_ARGUMENTS = /CLI\.(INVALID_ARGUMENTS|COMMAND_MOVED|UNKNOWN_COMMAND)/;
+// Without credentials or a config, the CLI stops at the first check after parsing its arguments.
+const ARGUMENTS_PARSED = /CLI\.(CREDENTIALS_REQUIRED|CONFIG_SECTION_INVALID)/;
 
 function run(bin, args, cwd) {
   const env = { ...process.env };
@@ -33,7 +35,7 @@ for (const bin of bins) {
       const args = composerArguments("deploy", "module.ts", environment, version);
       const output = run(bin, args, cwd);
       assert.doesNotMatch(output, REJECTED_ARGUMENTS, `prisma ${args.join(" ")}\n${output}`);
-      assert.match(output, /CLI\.CONFIG_SECTION_INVALID/, `prisma ${args.join(" ")}\n${output}`);
+      assert.match(output, ARGUMENTS_PARSED, `prisma ${args.join(" ")}\n${output}`);
     });
   }
 

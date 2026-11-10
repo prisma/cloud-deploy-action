@@ -4,11 +4,14 @@ import { readFileSync, statSync } from "node:fs";
 
 const isObject = (value) => typeof value === "object" && value !== null;
 
-/** Whether `report` has the version 1 run report shape that renderJobSummary reads. */
-function isRunReportV1(report) {
+/**
+ * Whether `report` has the run report shape that renderJobSummary reads.
+ * Version 2 (prisma 8.0.0-rc.30) only renamed `stage` to `environment`.
+ */
+function isRunReport(report) {
   return (
     isObject(report) &&
-    report.version === 1 &&
+    (report.version === 1 || report.version === 2) &&
     (report.outcome === "succeeded" || report.outcome === "failed") &&
     (report.app === null || typeof report.app === "string") &&
     (report.failure === null || isObject(report.failure)) &&
@@ -30,13 +33,13 @@ function isRunReportV1(report) {
  * The run report the deploy wrote during this run, or null when there is
  * none. A file older than `notBefore` (epoch ms) is left over from an earlier
  * run, so it counts as none; so does a file that is not valid JSON or not a
- * version 1 run report.
+ * version 1 or 2 run report.
  */
 export function readRunReport(path, notBefore) {
   try {
     if (statSync(path).mtimeMs < notBefore) return null;
     const report = JSON.parse(readFileSync(path, "utf8"));
-    return isRunReportV1(report) ? report : null;
+    return isRunReport(report) ? report : null;
   } catch {
     return null;
   }

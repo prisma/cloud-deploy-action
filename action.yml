@@ -18,6 +18,7 @@ inputs:
     default: ""
   stage:
     description: Older name for environment, kept for existing workflows
+    deprecationMessage: Use the environment input instead of stage.
     default: ""
   prisma-version:
     description: Runs this prisma version via bunx when the repository has no prisma devDependency. Empty refuses to deploy such a repository, since the CLI must match the app's Composer version

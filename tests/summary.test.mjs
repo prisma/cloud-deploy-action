@@ -201,7 +201,16 @@ test("readRunReport ignores a missing file, invalid JSON, and a report older tha
   assert.equal(readRunReport(path, Date.now() + 60_000), null);
 });
 
-test("readRunReport treats a report that is not the version 1 shape as missing", () => {
+test("readRunReport reads the version 2 report that prisma 8.0.0-rc.30 and later write", () => {
+  const dir = mkdtempSync(join(tmpdir(), "summary-test-"));
+  const path = join(dir, "report.json");
+  const { stage, ...rest } = PRODUCTION_REPORT;
+  const report = { ...rest, version: 2, environment: "production" };
+  writeFileSync(path, JSON.stringify(report));
+  assert.deepEqual(readRunReport(path, 0), report);
+});
+
+test("readRunReport treats a report that is not the version 1 or 2 shape as missing", () => {
   const dir = mkdtempSync(join(tmpdir(), "summary-test-"));
   const path = join(dir, "report.json");
   const node = PRODUCTION_REPORT.nodes[5];
@@ -209,7 +218,7 @@ test("readRunReport treats a report that is not the version 1 shape as missing",
     null,
     [],
     { nodes: {} },
-    { ...PRODUCTION_REPORT, version: 2 },
+    { ...PRODUCTION_REPORT, version: 3 },
     { ...PRODUCTION_REPORT, outcome: "running" },
     { ...PRODUCTION_REPORT, failure: "boom" },
     { ...PRODUCTION_REPORT, nodes: [null] },
