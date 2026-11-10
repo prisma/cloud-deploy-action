@@ -72,7 +72,10 @@ test("accepts environment and stage inputs that agree", () => {
 });
 
 test("refuses environment and stage inputs that disagree", () => {
-  const { result, outputs } = runMain({ environment: "pr-7", stage: "pr-8" });
+  const summary = join(mkdtempSync(join(tmpdir(), "main-summary-")), "summary.md");
+  const { result, outputs } = runMain({ environment: "pr-7", stage: "pr-8" }, { GITHUB_STEP_SUMMARY: summary });
+  assert.doesNotMatch(result.stdout, /could not write the job summary/);
+  assert.match(readFileSync(summary, "utf8"), /disagree; set only environment/);
   assert.equal(result.status, 1);
   assert.match(outputs, /^outcome=failed$/m);
   assert.match(result.stdout, /::error::config failed: the environment input \("pr-7"\) and its older name, the stage input \("pr-8"\), disagree/);

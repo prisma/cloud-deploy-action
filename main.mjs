@@ -186,15 +186,15 @@ const defaultBranch = (() => {
 
 // `stage` is the input's name from before the CLI renamed stages to environments.
 const explicitEnvironment = input("environment") || input("stage");
+// The default branch deploys to production; every other branch deploys to an
+// environment named after it.
+const environment = explicitEnvironment || (branch === defaultBranch ? "" : branch);
 if (input("environment") && input("stage") && input("environment") !== input("stage")) {
   await failEarly(
     "config",
     `the environment input ("${input("environment")}") and its older name, the stage input ("${input("stage")}"), disagree; set only environment`,
   );
 }
-// The default branch deploys to production; every other branch deploys to an
-// environment named after it.
-const environment = explicitEnvironment || (branch === defaultBranch ? "" : branch);
 if (mode !== "deploy" && mode !== "destroy") {
   await failEarly("config", `unknown mode "${mode}" (expected "deploy" or "destroy")`);
 }
