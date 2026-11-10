@@ -10,20 +10,27 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const { GITHUB_REPOSITORY, GITHUB_TOKEN, GITHUB_API_URL = 'https://api.github.com' } = process.env;
 if (!GITHUB_REPOSITORY || !GITHUB_TOKEN) throw new Error('GITHUB_REPOSITORY and GITHUB_TOKEN must be set');
 
-const listed = Bun.spawnSync(['bun', 'run', '--bun', 'prisma', 'branch', 'list', '--project', APP_NAME, '--json']);
-let output;
-try {
-  output = JSON.parse(listed.stdout.toString());
-} catch {
-  throw new Error(`prisma branch list printed no JSON:\n${listed.stdout}${listed.stderr}`);
+function environments(): string[] {
+  const listed = Bun.spawnSync(['bun', 'run', '--bun', 'prisma', 'branch', 'list', '--project', APP_NAME, '--json']);
+  let output;
+  try {
+    output = JSON.parse(listed.stdout.toString());
+  } catch {
+    throw new Error(`prisma branch list printed no JSON:\n${listed.stdout}${listed.stderr}`);
+  }
+  if (!output.envelope?.ok) throw new Error(`prisma branch list failed:\n${listed.stdout}${listed.stderr}`);
+  return output.envelope.result.branches.map((branch: { name: string }) => branch.name);
 }
-if (!output.envelope?.ok) throw new Error(`prisma branch list failed:\n${listed.stdout}${listed.stderr}`);
 
 async function finishedRun(runId: string): Promise<{ createdAt: number } | null> {
   const response = await fetch(`${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${runId}`, {
     headers: { authorization: `Bearer ${GITHUB_TOKEN}`, accept: 'application/vnd.github+json' },
   });
   if (response.status === 404) return { createdAt: 0 };
+  if (response.status === 403 || response.status === 429 || response.status >= 500) {
+    console.log(`GitHub API ${response.status} for run ${runId}; leaving its environment for the next sweep`);
+    return null;
+  }
   if (!response.ok) throw new Error(`GitHub API ${response.status} for run ${runId}`);
   const run = await response.json();
   return run.status === 'completed' ? { createdAt: Date.parse(run.created_at) } : null;
@@ -31,14 +38,14 @@ async function finishedRun(runId: string): Promise<{ createdAt: number } | null>
 
 let stuck = 0;
 let destroyed = 0;
-for (const { name } of output.envelope.result.branches as { name: string }[]) {
+for (const name of environments()) {
   const runId = name.match(/^e2e-(\d+)-\d+-[a-z]+$/)?.[1];
   if (!runId) continue;
   const run = await finishedRun(runId);
   if (!run) continue;
   if (await destroyEnvironment(name)) {
     destroyed++;
-  } else if (Date.now() - run.createdAt > DAY_MS) {
+  } else if (Date.now() - run.createdAt > DAY_MS && environments().includes(name)) {
     stuck++;
   }
 }
