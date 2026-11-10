@@ -95,11 +95,10 @@ jobs:
         # pinned is the version in e2e/app's lockfile; latest moves the app to
         # prisma@latest and the Composer version it bundles.
         prisma: [pinned, latest]
-    # One job per matrix entry at a time, so the sweep never removes an
-    # environment another run is still testing.
-    concurrency:
-      group: e2e-${{ matrix.prisma }}
-      cancel-in-progress: false
+    permissions:
+      contents: read
+      # The sweep reads whether the run that made an environment has finished.
+      actions: read
     env:
       ENVIRONMENT: e2e-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.prisma }}
     steps:
@@ -155,10 +154,11 @@ jobs:
         env:
           PRISMA_SERVICE_TOKEN: ${{ secrets.PRISMA_SERVICE_TOKEN }}
           PRISMA_WORKSPACE_ID: ${{ vars.PRISMA_WORKSPACE_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: bun scripts/sweep.ts
 
-  notify-slack:
-    name: Report a failure on main, a scheduled or a manual run to Slack
+  report-failure:
+    name: Report a failure on main, a scheduled, manual or prisma-released run to Slack
     needs: [check, prisma-cli, e2e]
     # failure() misses a needed job that was cancelled or lost its runner.
     if: >-

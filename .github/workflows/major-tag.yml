@@ -5,7 +5,9 @@ name: move major tag
 
 on:
   release:
-    types: [published]
+    # released fires for a full release, including a prerelease promoted to
+    # one, and never for a prerelease.
+    types: [released]
   workflow_dispatch:
     inputs:
       tag:
@@ -23,7 +25,6 @@ jobs:
     concurrency:
       group: major-tag
       cancel-in-progress: false
-    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
@@ -38,7 +39,7 @@ jobs:
           fi
           major=${BASH_REMATCH[1]}
           if git rev-parse -q --verify "refs/tags/$major" >/dev/null; then
-            current=$(git tag --points-at "refs/tags/$major" --list "$major.*.*" | sort -V | tail -1)
+            current=$(git tag --points-at "refs/tags/$major" | grep -E "^$major\.[0-9]+\.[0-9]+$" | sort -V | tail -1 || true)
             newest=$(printf '%s\n%s\n' "$current" "$TAG" | sort -V | tail -1)
             if [ -n "$current" ] && [ "$newest" != "$TAG" ]; then
               echo "$major already points at $current, which is newer than $TAG; leaving it"

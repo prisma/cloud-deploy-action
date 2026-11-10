@@ -1,20 +1,49 @@
-// Destroys environments that earlier runs of this matrix entry left behind.
-// CI runs one job per matrix entry at a time, so none of them is in use.
+// Destroys e2e environments whose GitHub Actions run has finished: runs that
+// could not destroy their own. CI names each environment
+// e2e-<run id>-<attempt>-<matrix entry>, so a run that is still going keeps its
+// environment. A leftover that will not go away fails the sweep only once it is
+// a day old, so one stuck destroy does not fail every run straight away.
+import { APP_NAME } from '../app-name.ts';
 import { destroyEnvironment } from './environments.ts';
 
-const current = process.env.ENVIRONMENT ?? '';
-if (!/^e2e-.+-[a-z]+$/.test(current)) throw new Error(`ENVIRONMENT must be this run's e2e environment, got "${current}"`);
-const suffix = current.slice(current.lastIndexOf('-'));
-const listed = Bun.spawnSync(['bun', 'run', '--bun', 'prisma', 'branch', 'list', '--project', 'cloud-deploy-action-e2e', '--json']);
-const output = JSON.parse(listed.stdout.toString());
-if (!output.envelope?.ok) throw new Error(`prisma branch list failed: ${listed.stdout}${listed.stderr}`);
+const DAY_MS = 24 * 60 * 60 * 1000;
+const { GITHUB_REPOSITORY, GITHUB_TOKEN, GITHUB_API_URL = 'https://api.github.com' } = process.env;
+if (!GITHUB_REPOSITORY || !GITHUB_TOKEN) throw new Error('GITHUB_REPOSITORY and GITHUB_TOKEN must be set');
 
-const leftovers = output.envelope.result.branches
-  .map((branch: { name: string }) => branch.name)
-  .filter((name: string) => name.startsWith('e2e-') && name.endsWith(suffix) && name !== current);
-let failed = false;
-for (const environment of leftovers) {
-  if (!(await destroyEnvironment(environment))) failed = true;
+const listed = Bun.spawnSync(['bun', 'run', '--bun', 'prisma', 'branch', 'list', '--project', APP_NAME, '--json']);
+let output;
+try {
+  output = JSON.parse(listed.stdout.toString());
+} catch {
+  throw new Error(`prisma branch list printed no JSON:\n${listed.stdout}${listed.stderr}`);
 }
-console.log(`swept ${leftovers.length} leftover environment(s)`);
-if (failed) process.exit(1);
+if (!output.envelope?.ok) throw new Error(`prisma branch list failed:\n${listed.stdout}${listed.stderr}`);
+
+async function finishedRun(runId: string): Promise<{ createdAt: number } | null> {
+  const response = await fetch(`${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${runId}`, {
+    headers: { authorization: `Bearer ${GITHUB_TOKEN}`, accept: 'application/vnd.github+json' },
+  });
+  if (response.status === 404) return { createdAt: 0 };
+  if (!response.ok) throw new Error(`GitHub API ${response.status} for run ${runId}`);
+  const run = await response.json();
+  return run.status === 'completed' ? { createdAt: Date.parse(run.created_at) } : null;
+}
+
+let stuck = 0;
+let destroyed = 0;
+for (const { name } of output.envelope.result.branches as { name: string }[]) {
+  const runId = name.match(/^e2e-(\d+)-\d+-[a-z]+$/)?.[1];
+  if (!runId) continue;
+  const run = await finishedRun(runId);
+  if (!run) continue;
+  if (await destroyEnvironment(name)) {
+    destroyed++;
+  } else if (Date.now() - run.createdAt > DAY_MS) {
+    stuck++;
+  }
+}
+console.log(`swept ${destroyed} leftover environment(s)`);
+if (stuck > 0) {
+  console.error(`::error::${stuck} leftover environment(s) older than a day could not be destroyed; see the README for removing one by hand`);
+  process.exit(1);
+}
