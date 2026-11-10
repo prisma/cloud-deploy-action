@@ -33,6 +33,24 @@ function runMain(inputs, env = {}) {
   return { result, outputs: readFileSync(output, "utf8") };
 }
 
+function defaultBranchEvent() {
+  const path = join(mkdtempSync(join(tmpdir(), "main-event-")), "event.json");
+  writeFileSync(path, JSON.stringify({ repository: { default_branch: "main" } }));
+  return { GITHUB_REF_NAME: "main", GITHUB_EVENT_PATH: path };
+}
+
+test("the default branch deploys to production", () => {
+  const { result } = runMain({}, defaultBranchEvent());
+  assert.match(result.stdout, /^deploy target: production \(default branch\)$/m);
+});
+
+test("destroy on the default branch refuses to run without an explicit environment", () => {
+  const { result, outputs } = runMain({ mode: "destroy" }, defaultBranchEvent());
+  assert.equal(result.status, 1);
+  assert.match(outputs, /^outcome=failed$/m);
+  assert.match(result.stdout, /::error::config failed: destroy refuses to run without a resolved environment/);
+});
+
 test("a non-default branch targets the environment named after it", () => {
   const { result } = runMain({});
   assert.match(result.stdout, /^deploy target: environment feat-x$/m);

@@ -11,6 +11,9 @@ on:
   repository_dispatch:
     types: [prisma-released]
 
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest

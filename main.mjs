@@ -30,6 +30,12 @@ const saveState = (name, value) => appendFileSync(process.env.GITHUB_STATE, `${n
 const STUB_BUILD_ID = `build_stub_${process.env.GITHUB_RUN_ID}`;
 const startedAt = Date.now();
 
+let reportWarningLogged = false;
+const warnAboutReport = (message) => {
+  if (!reportWarningLogged) log(`::warning::${message}`);
+  reportWarningLogged = true;
+};
+
 let reporter = null;
 let buildId = null;
 let firstPhaseReported = false;
@@ -39,7 +45,7 @@ function finish(outcome, { cause, urls } = {}) {
   setOutput("outcome", outcome);
   saveState("finalOutcome", outcome);
   try {
-    const report = readRunReport(reportPath, startedAt);
+    const report = readRunReport(reportPath, startedAt, warnAboutReport);
     if (report) setOutput("report-path", reportPath);
     if (process.env.GITHUB_STEP_SUMMARY) {
       const summary = renderJobSummary({
@@ -331,7 +337,7 @@ log(cliLabel);
 
 const deployOutput = await runPhase(mode, cliCmd, cliArgs, mode === "deploy");
 
-const fromReport = deployedUrlsFromReport(readRunReport(reportPath, startedAt));
+const fromReport = deployedUrlsFromReport(readRunReport(reportPath, startedAt, warnAboutReport));
 const { urls, url: deployedUrl } =
   mode !== "deploy"
     ? { urls: {}, url: null }

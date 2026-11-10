@@ -5,13 +5,14 @@ import { readFileSync, statSync } from "node:fs";
 const isObject = (value) => typeof value === "object" && value !== null;
 
 /**
- * Whether `report` has the run report shape that renderJobSummary reads.
- * Version 2 (prisma 8.0.0-rc.30) only renamed `stage` to `environment`.
+ * Whether `report` has the fields renderJobSummary and the URL outputs read.
+ * The version is not checked: a new version that keeps these fields (as
+ * version 2 did, renaming only `stage`) still works.
  */
 function isRunReport(report) {
   return (
     isObject(report) &&
-    (report.version === 1 || report.version === 2) &&
+    Number.isInteger(report.version) &&
     (report.outcome === "succeeded" || report.outcome === "failed") &&
     (report.app === null || typeof report.app === "string") &&
     (report.failure === null || isObject(report.failure)) &&
@@ -32,17 +33,33 @@ function isRunReport(report) {
 /**
  * The run report the deploy wrote during this run, or null when there is
  * none. A file older than `notBefore` (epoch ms) is left over from an earlier
- * run, so it counts as none; so does a file that is not valid JSON or not a
- * version 1 or 2 run report.
+ * run, so it counts as none. A file from this run that is not valid JSON or
+ * lacks the fields the action reads also counts as none, and `warn` says why.
+ *
+ * @param {string} path
+ * @param {number} notBefore
+ * @param {(message: string) => void} [warn]
  */
-export function readRunReport(path, notBefore) {
+export function readRunReport(path, notBefore, warn = () => {}) {
   try {
     if (statSync(path).mtimeMs < notBefore) return null;
-    const report = JSON.parse(readFileSync(path, "utf8"));
-    return isRunReport(report) ? report : null;
   } catch {
     return null;
   }
+  let report;
+  try {
+    report = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    warn(`the run report at ${path} is not readable JSON (${error.message}), so the job summary and URL outputs ignore it`);
+    return null;
+  }
+  if (!isRunReport(report)) {
+    warn(
+      `the run report at ${path} (version ${JSON.stringify(report?.version)}) lacks fields the action reads, so the job summary and URL outputs ignore it; the action may need an update for this prisma version`,
+    );
+    return null;
+  }
+  return report;
 }
 
 /**

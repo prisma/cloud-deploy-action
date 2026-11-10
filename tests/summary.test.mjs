@@ -210,7 +210,29 @@ test("readRunReport reads the version 2 report that prisma 8.0.0-rc.30 and later
   assert.deepEqual(readRunReport(path, 0), report);
 });
 
-test("readRunReport treats a report that is not the version 1 or 2 shape as missing", () => {
+test("readRunReport reads a report of a later version that keeps the fields the action reads", () => {
+  const dir = mkdtempSync(join(tmpdir(), "summary-test-"));
+  const path = join(dir, "report.json");
+  const report = { ...PRODUCTION_REPORT, version: 3, added: true };
+  writeFileSync(path, JSON.stringify(report));
+  assert.deepEqual(readRunReport(path, 0), report);
+});
+
+test("readRunReport warns about a report from this run it cannot read", () => {
+  const dir = mkdtempSync(join(tmpdir(), "summary-test-"));
+  const path = join(dir, "report.json");
+  const warnings = [];
+  writeFileSync(path, "not json");
+  assert.equal(readRunReport(path, 0, (message) => warnings.push(message)), null);
+  writeFileSync(path, JSON.stringify({ ...PRODUCTION_REPORT, version: 9, nodes: {} }));
+  assert.equal(readRunReport(path, 0, (message) => warnings.push(message)), null);
+  assert.equal(readRunReport(join(dir, "missing.json"), 0, (message) => warnings.push(message)), null);
+  assert.equal(warnings.length, 2);
+  assert.match(warnings[0], /is not readable JSON/);
+  assert.match(warnings[1], /\(version 9\) lacks fields the action reads/);
+});
+
+test("readRunReport treats a report without the fields the action reads as missing", () => {
   const dir = mkdtempSync(join(tmpdir(), "summary-test-"));
   const path = join(dir, "report.json");
   const node = PRODUCTION_REPORT.nodes[5];
@@ -218,7 +240,7 @@ test("readRunReport treats a report that is not the version 1 or 2 shape as miss
     null,
     [],
     { nodes: {} },
-    { ...PRODUCTION_REPORT, version: 3 },
+    { ...PRODUCTION_REPORT, version: "1" },
     { ...PRODUCTION_REPORT, outcome: "running" },
     { ...PRODUCTION_REPORT, failure: "boom" },
     { ...PRODUCTION_REPORT, nodes: [null] },

@@ -18,16 +18,21 @@ const REJECTED_ARGUMENTS = /CLI\.(INVALID_ARGUMENTS|COMMAND_MOVED|UNKNOWN_COMMAN
 // Without credentials or a config, the CLI stops at the first check after parsing its arguments.
 const ARGUMENTS_PARSED = /CLI\.(CREDENTIALS_REQUIRED|CONFIG_SECTION_INVALID)/;
 
-function run(bin, args, cwd) {
+function spawnCli(bin, args, cwd) {
   const env = { ...process.env };
   delete env.PRISMA_SERVICE_TOKEN;
   delete env.PRISMA_WORKSPACE_ID;
-  const result = spawnSync(bin, args, { cwd, env, encoding: "utf8", timeout: 60_000 });
+  return spawnSync(bin, args, { cwd, env, encoding: "utf8", timeout: 60_000 });
+}
+
+function run(bin, args, cwd) {
+  const result = spawnCli(bin, args, cwd);
   return `${result.stdout}${result.stderr}`;
 }
 
 for (const bin of bins) {
-  const version = run(bin, ["--version"]).trim().split("\n")[0];
+  const version = spawnCli(bin, ["--version"]).stdout.trim();
+  assert.match(version, /^\d+\.\d+\.\d+/, `prisma --version printed "${version}"`);
 
   for (const environment of ["", "pr-7"]) {
     test(`prisma ${version} accepts the deploy arguments for ${environment || "production"}`, () => {
