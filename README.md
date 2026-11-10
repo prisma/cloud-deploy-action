@@ -169,6 +169,10 @@ Branch names reach the action as environment variables and are passed to the `pr
 
 Plain Node with zero dependencies and no build step. Inputs arrive as `INPUT_*` environment variables; outputs and state go to `$GITHUB_OUTPUT` and `$GITHUB_STATE`.
 
+CI tests the action in three ways. Unit tests cover the scripts. A matrix runs the exact arguments the action passes against real `prisma` CLIs, including the npm `latest` and `dev` tags. An end-to-end job runs the action itself (`uses: ./`) on the small app in `e2e/app`: it deploys to a new preview environment, checks the outputs and that the service answers, then destroys the environment. It runs once with the app's pinned versions and once moved to `prisma@latest`. The end-to-end job needs the `PRISMA_SERVICE_TOKEN` secret and the `PRISMA_WORKSPACE_ID` variable. A sweep step destroys `e2e-*` environments whose run has finished, which are ones an earlier run could not destroy. It fails only when such an environment is more than a day old. To remove one by hand, run `ENVIRONMENT=<name> bun scripts/destroy.ts` in `e2e/app` with `PRISMA_SERVICE_TOKEN` and `PRISMA_WORKSPACE_ID` set. The end-to-end job covers the `bun install` path with the app's own `prisma` devDependency. It does not cover `npm ci` or the `prisma-version` input. CI also runs every 6 hours. A failed or cancelled job on `main`, on a scheduled run, on a manual run or on a `prisma-released` dispatch posts to Slack through the `SLACK_WEBHOOK_URL` secret.
+
+Publishing a `v1.x.y` release, or promoting a prerelease to one, moves the `v1` tag to the newest published `v1.x.y` release (`.github/workflows/major-tag.yml`). Publishing a prerelease never moves it. To move it by hand, run that workflow.
+
 ## License
 
 [Apache-2.0](LICENSE)
