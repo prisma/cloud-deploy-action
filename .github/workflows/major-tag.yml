@@ -18,6 +18,11 @@ permissions:
 jobs:
   move:
     runs-on: ubuntu-latest
+    # Each run reads where the major tag points before moving it, so two
+    # releases published together must not interleave.
+    concurrency:
+      group: major-tag
+      cancel-in-progress: false
     if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}

@@ -3,6 +3,7 @@
 import { destroyEnvironment } from './environments.ts';
 
 const current = process.env.ENVIRONMENT ?? '';
+if (!/^e2e-.+-[a-z]+$/.test(current)) throw new Error(`ENVIRONMENT must be this run's e2e environment, got "${current}"`);
 const suffix = current.slice(current.lastIndexOf('-'));
 const listed = Bun.spawnSync(['bun', 'run', '--bun', 'prisma', 'branch', 'list', '--project', 'cloud-deploy-action-e2e', '--json']);
 const output = JSON.parse(listed.stdout.toString());
