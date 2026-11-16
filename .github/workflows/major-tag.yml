@@ -1,0 +1,49 @@
+name: move major tag
+
+# Workflows use the action as prisma/cloud-deploy-action@v1, so v1 must point
+# at the newest v1.x.y release. Each run moves every major tag to its newest
+# published release, so a run that GitHub cancels while it waits loses nothing.
+
+on:
+  release:
+    # released fires for a full release, including a prerelease promoted to
+    # one, and never for a prerelease.
+    types: [released]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  move:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: major-tag
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Move each major tag to its newest published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch --tags --force --quiet
+          releases=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1000 --json tagName --jq '.[].tagName' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+          # A release can outlive its git tag; choose only among releases that have one.
+          releases=$(for tag in $releases; do if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then echo "$tag"; fi; done)
+          if [ -z "$releases" ]; then
+            echo "::error::found no published vX.Y.Z releases"
+            exit 1
+          fi
+          for major in $(echo "$releases" | cut -d. -f1 | sort -u); do
+            newest=$(echo "$releases" | grep "^$major\." | sort -V | tail -1)
+            target=$(git rev-parse "refs/tags/$newest^{commit}")
+            if [ "$(git rev-parse -q --verify "refs/tags/$major^{commit}" || true)" = "$target" ]; then
+              echo "$major already points at $newest"
+              continue
+            fi
+            git tag -f "$major" "$target"
+            git push --force origin "refs/tags/$major"
+            echo "$major now points at $newest ($target)"
+          done
