@@ -65,9 +65,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # rc.29 is the last CLI that takes --stage. latest and dev are npm
-        # dist-tags, so a scheduled run tests each new release.
-        prisma: [8.0.0-rc.29, 8.0.0-rc.33, latest, dev]
+        # rc.29 is the last CLI that takes --stage. latest is an npm dist-tag,
+        # so a scheduled run tests each new release.
+        prisma: [8.0.0-rc.29, 8.0.0-rc.33, latest]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
