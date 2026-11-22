@@ -145,7 +145,7 @@ jobs:
         timeout-minutes: 10
         env:
           PRISMA_SERVICE_TOKEN: ${{ secrets.PRISMA_SERVICE_TOKEN }}
-          PRISMA_WORKSPACE_ID: ${{ vars.PRISMA_WORKSPACE_ID }}
+          PRISMA_WORKSPACE_ID: ${{ secrets.PRISMA_WORKSPACE_ID }}
         run: bun scripts/destroy.ts
       - name: Destroy environments earlier runs left behind
         if: always() && steps.deploy.outcome != 'skipped' && steps.deploy.outputs.outcome != 'skipped-no-credential'
@@ -153,7 +153,7 @@ jobs:
         timeout-minutes: 10
         env:
           PRISMA_SERVICE_TOKEN: ${{ secrets.PRISMA_SERVICE_TOKEN }}
-          PRISMA_WORKSPACE_ID: ${{ vars.PRISMA_WORKSPACE_ID }}
+          PRISMA_WORKSPACE_ID: ${{ secrets.PRISMA_WORKSPACE_ID }}
           GITHUB_TOKEN: ${{ github.token }}
         run: bun scripts/sweep.ts
 
