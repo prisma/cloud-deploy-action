@@ -10,6 +10,7 @@ import {
   MINIMUM_BUN_VERSION,
   composerArguments,
   findLocalPrismaCli,
+  hasDeployCommand,
   isSupportedBunVersion,
   selectPrismaCliCommand,
 } from "./cli.mjs";
@@ -147,6 +148,7 @@ async function runPhase(phase, command, args, capture = false) {
 const mode = input("mode") || "deploy";
 const modulePath = input("module") || "module.ts";
 const prismaVersion = input("prisma-version");
+const configPath = input("config");
 const workdir = resolve(process.env.GITHUB_WORKSPACE ?? ".", input("working-directory") || ".");
 const repository = process.env.GITHUB_REPOSITORY ?? "";
 const branch = process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || "";
@@ -297,11 +299,25 @@ if (buildId) {
 await runPhase("install", installCommand);
 
 const localCli = findLocalPrismaCli(workdir, resolve(process.env.GITHUB_WORKSPACE ?? "."));
-const hasLocalBin = localCli !== null;
-if (!hasLocalBin && !prismaVersion) {
+// A repository still on Prisma ORM 6 or 7 carries that version's CLI, which
+// has no deploy command. Running it can only fail, so the deploy goes to the
+// prisma-version input instead.
+const localCliDeploys = localCli !== null && hasDeployCommand(localCli.version);
+if (localCli === null && !prismaVersion) {
   await fail(
     "config",
     `no prisma CLI in node_modules from ${workdir} up to the repository root: add prisma as a devDependency at the version that matches your app's @prisma/composer (the CLI and the app must be on the same Composer version), or set the prisma-version input`,
+  );
+}
+if (localCli !== null && !localCliDeploys) {
+  if (!prismaVersion) {
+    await fail(
+      "config",
+      `the prisma CLI in node_modules is ${localCli.version}, which has no ${mode} command (it arrived with prisma 8): set the prisma-version input to the prisma 8 version that matches your app's @prisma/composer, and the action runs that version instead of the installed one`,
+    );
+  }
+  log(
+    `the prisma CLI in node_modules is ${localCli.version}, which has no ${mode} command; running prisma@${prismaVersion} from the prisma-version input instead`,
   );
 }
 
@@ -326,11 +342,12 @@ const composerArgs = composerArguments(
   mode,
   modulePath,
   environment,
-  localCli ? localCli.version : prismaVersion,
+  localCliDeploys ? localCli.version : prismaVersion,
+  configPath,
 );
 const [cliCmd, cliArgs, cliLabel] = selectPrismaCliCommand(
   prismaVersion,
-  hasLocalBin,
+  localCliDeploys,
   composerArgs,
 );
 log(cliLabel);

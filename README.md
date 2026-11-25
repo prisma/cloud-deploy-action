@@ -75,7 +75,7 @@ An explicit token always wins over the OIDC exchange.
 
 ## How it works
 
-Each run has three phases: install, build, and deploy. Your workflow owns checkout and the toolchain. The action runs your install and build commands exactly as configured, and it never inspects your repository to decide how to build. A repository with no build script — one that runs its source directly — sets `build-command: none` to skip the build phase. The deploy phase hands your built app to the top-level `deploy` command of the unified [`prisma` CLI](https://www.npmjs.com/package/prisma) (`prisma deploy`, since `8.0.0-rc.8`; earlier versions used the removed `prisma composer` prefix and are not supported), running it under Bun. The action runs the repository's own `prisma` CLI, which the repository must carry as a devDependency: the CLI and the app must be on the same Composer version, and only the repository's lockfile can guarantee that. The action looks for it in the working directory and its parents up to the repository root, so a monorepo can install it at the root. A repository without it fails with an error that says so, unless it sets `prisma-version` (use an exact version: the npm `next` tag is not the newest release). Bun `1.3.10` or newer must be on the runner PATH — add `oven-sh/setup-bun@v2` before this action (it installs the latest by default). The generated Prisma deploy workflow includes that step automatically.
+Each run has three phases: install, build, and deploy. Your workflow owns checkout and the toolchain. The action runs your install and build commands exactly as configured, and it never inspects your repository to decide how to build. A repository with no build script — one that runs its source directly — sets `build-command: none` to skip the build phase. The deploy phase hands your built app to the top-level `deploy` command of the unified [`prisma` CLI](https://www.npmjs.com/package/prisma) (`prisma deploy`, since `8.0.0-rc.8`; earlier versions used the removed `prisma composer` prefix and are not supported), running it under Bun. The action runs the repository's own `prisma` CLI, which the repository must carry as a devDependency: the CLI and the app must be on the same Composer version, and only the repository's lockfile can guarantee that. The action looks for it in the working directory and its parents up to the repository root, so a monorepo can install it at the root. A repository without it fails with an error that says so, unless it sets `prisma-version` (use an exact version: the npm `next` tag is not the newest release). A repository whose own `prisma` is older than 8 is treated the same way, because that CLI has no `deploy` command. Bun `1.3.10` or newer must be on the runner PATH — add `oven-sh/setup-bun@v2` before this action (it installs the latest by default). The generated Prisma deploy workflow includes that step automatically.
 
 Deploy targets follow your branches:
 
@@ -95,9 +95,25 @@ The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the en
 | `mode` | `deploy` | `deploy` or `destroy`. |
 | `environment` | derived | Empty derives the environment from the branch: the default branch deploys to production, any other branch name becomes the environment. `destroy` requires a resolved environment. On `prisma` 8.0.0-rc.30 and later the action passes it as `--environment`; earlier versions get `--stage`. |
 | `stage` | empty | The older name for `environment`, kept so existing workflows keep working. Setting both to different values fails the run. |
-| `prisma-version` | empty | Runs this `prisma` version via bunx when the repository has no `prisma` devDependency. Empty refuses to deploy such a repository. Repositories that carry the devDependency always deploy with their own installed version. |
+| `prisma-version` | empty | Runs this `prisma` version via bunx when the repository has no `prisma` devDependency, or when the one it has is older than `prisma` 8 and so has no `deploy` command (see [Repositories on Prisma ORM 6 or 7](#repositories-on-prisma-orm-6-or-7)). Empty refuses to deploy such a repository. Repositories that carry `prisma` 8 as a devDependency always deploy with their own installed version. |
+| `config` | empty | Path of the config file the `prisma` CLI reads, relative to the working directory. The action passes it as `--config`. Empty lets the CLI discover `prisma.config.ts`. |
 | `working-directory` | `.` | Where install, build, and deploy run. |
 | `api-url` | `https://api.prisma.io` | Prisma API base URL for the OIDC credential exchange. |
+
+## Repositories on Prisma ORM 6 or 7
+
+An app can deploy while it still uses Prisma ORM 6 or 7 for its queries. Its installed `prisma` CLI has no `deploy` command, and its `prisma.config.ts` belongs to that older CLI, so the workflow names the `prisma` 8 CLI and a separate config file for it:
+
+```yaml
+      - uses: prisma/cloud-deploy-action@v1
+        with:
+          prisma-version: 8.0.0-rc.35
+          config: prisma.compute.config.ts
+```
+
+`prisma-version` must be the `prisma` 8 release whose `@prisma/composer-cli` dependency matches the `@prisma/composer` version the app installs. The action logs that it found the older CLI and runs the named version through bunx instead. Without `prisma-version`, the run fails with an error that names the installed version.
+
+`config` points the `prisma` 8 CLI at its own file, so `prisma.config.ts` stays as the older CLI expects it, or stays absent. Write the file with `definePrismaConfig` from `@prisma/cli-engine`, added as a devDependency: in such a repository `prisma/config` resolves to the older package, which has no `definePrismaConfig`.
 
 ## Outputs
 
