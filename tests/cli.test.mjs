@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   composerArguments,
   findLocalPrismaCli,
+  hasDeployCommand,
   isSupportedBunVersion,
   selectPrismaCliCommand,
   takesEntryFlag,
@@ -213,4 +214,39 @@ test("reports an empty version when the prisma package cannot be read", () => {
   mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
   writeFileSync(join(root, "node_modules", ".bin", "prisma"), "");
   assert.deepEqual(findLocalPrismaCli(root, root), { version: "" });
+});
+
+test("a prisma CLI older than 8 has no deploy command", () => {
+  assert.equal(hasDeployCommand("6.19.1"), false);
+  assert.equal(hasDeployCommand("7.10.1"), false);
+  assert.equal(hasDeployCommand("5.22.0"), false);
+});
+
+test("prisma 8 and later have the deploy command", () => {
+  assert.equal(hasDeployCommand("8.0.0-rc.33"), true);
+  assert.equal(hasDeployCommand("8.0.0"), true);
+  assert.equal(hasDeployCommand("9.1.0"), true);
+  assert.equal(hasDeployCommand("10.0.0"), true);
+});
+
+test("an unreadable version keeps the repository's own CLI", () => {
+  assert.equal(hasDeployCommand(""), true);
+  assert.equal(hasDeployCommand("workspace:*"), true);
+});
+
+test("passes the config input as --config after the other arguments", () => {
+  assert.deepEqual(composerArguments("deploy", "module.ts", "pr-7", "8.0.0-rc.35", "prisma.compute.config.ts"), [
+    "deploy",
+    "--entry",
+    "module.ts",
+    "--environment",
+    "pr-7",
+    "--config",
+    "prisma.compute.config.ts",
+  ]);
+});
+
+test("passes no --config when the input is empty", () => {
+  assert.deepEqual(composerArguments("deploy", "module.ts", "", "8.0.0-rc.35", ""), ["deploy", "--entry", "module.ts"]);
+  assert.deepEqual(composerArguments("deploy", "module.ts", "", "8.0.0-rc.35"), ["deploy", "--entry", "module.ts"]);
 });

@@ -21,7 +21,10 @@ inputs:
     deprecationMessage: Use the environment input instead of stage.
     default: ""
   prisma-version:
-    description: Runs this prisma version via bunx when the repository has no prisma devDependency. Empty refuses to deploy such a repository, since the CLI must match the app's Composer version
+    description: Runs this prisma version via bunx when the repository has no prisma devDependency, or has one older than prisma 8 (which has no deploy command). Empty refuses to deploy such a repository, since the CLI must match the app's Composer version
+    default: ""
+  config:
+    description: Path of the config file the prisma CLI reads, relative to the working directory. Empty lets the CLI discover prisma.config.ts
     default: ""
   working-directory:
     description: Where install, build, and deploy run

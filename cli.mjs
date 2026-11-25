@@ -82,6 +82,21 @@ export function takesEnvironmentFlag(version) {
 }
 
 /**
+ * Whether this `prisma` CLI has the `deploy` and `destroy` commands. They
+ * arrived with prisma 8; the CLI of Prisma ORM 6 and 7 has neither, so a
+ * repository that still uses one of those for its ORM cannot deploy with its
+ * own CLI. Unparseable versions count as current, so an unreadable manifest
+ * never turns a working deploy away from the repository's own CLI.
+ *
+ * @param {string} version - e.g. "6.19.1" or "8.0.0-rc.33".
+ * @returns {boolean}
+ */
+export function hasDeployCommand(version) {
+  const match = version.match(/^(\d+)\./);
+  return !match || Number(match[1]) >= 8;
+}
+
+/**
  * The `prisma` CLI `bun run` finds from `workdir`: the nearest
  * node_modules/.bin/prisma in `workdir` or a parent, up to `root`, so a
  * monorepo package finds the CLI hoisted to the repository root. Null when
@@ -116,12 +131,18 @@ function packageVersion(manifestPath) {
  * @param {string} modulePath
  * @param {string} environment - Empty for production.
  * @param {string} cliVersion - The version of the `prisma` CLI that will run.
+ * @param {string} [configPath] - A config file for the CLI to read instead of the prisma.config.ts it discovers. Empty leaves discovery to the CLI.
  * @returns {string[]}
  */
-export function composerArguments(mode, modulePath, environment, cliVersion) {
+export function composerArguments(mode, modulePath, environment, cliVersion, configPath = "") {
   const entry = takesEntryFlag(cliVersion) ? ["--entry", modulePath] : [modulePath];
   const target = takesEnvironmentFlag(cliVersion) ? "--environment" : "--stage";
-  return [mode, ...entry, ...(environment ? [target, environment] : [])];
+  return [
+    mode,
+    ...entry,
+    ...(environment ? [target, environment] : []),
+    ...(configPath ? ["--config", configPath] : []),
+  ];
 }
 
 export function selectPrismaCliCommand(prismaVersion, binExists, composerArgs) {

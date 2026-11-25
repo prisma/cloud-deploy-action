@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -43,6 +43,17 @@ for (const bin of bins) {
       assert.match(output, ARGUMENTS_PARSED, `prisma ${args.join(" ")}\n${output}`);
     });
   }
+
+  test(`prisma ${version} accepts the config input as --config and reads that file`, () => {
+    const cwd = mkdtempSync(join(tmpdir(), "prisma-cli-"));
+    // The marker definePrismaConfig writes, without needing the package here.
+    writeFileSync(join(cwd, "prisma.compute.config.ts"), "export default { $prismaConfig: 1 };\n");
+    const args = composerArguments("deploy", "module.ts", "pr-7", version, "prisma.compute.config.ts");
+    const output = run(bin, args, cwd);
+    assert.doesNotMatch(output, REJECTED_ARGUMENTS, `prisma ${args.join(" ")}\n${output}`);
+    assert.doesNotMatch(output, /CLI\.CONFIG_(MISSING_MARKER|UNREADABLE|NOT_FOUND)/, `prisma ${args.join(" ")}\n${output}`);
+    assert.match(output, ARGUMENTS_PARSED, `prisma ${args.join(" ")}\n${output}`);
+  });
 
   test(`prisma ${version} still rejects an unknown flag before its other checks`, () => {
     const output = run(bin, ["deploy", "--no-such-flag", "x"], mkdtempSync(join(tmpdir(), "prisma-cli-")));
