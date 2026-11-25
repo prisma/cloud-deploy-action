@@ -5,7 +5,7 @@ inputs:
     description: Your build command, run verbatim in both modes; the exact value "none" skips the build phase
     default: npm run build
   install-command:
-    description: Empty auto-detects from the lockfile (npm ci or bun install --frozen-lockfile)
+    description: Empty auto-detects from the lockfile (npm ci or bun install --frozen-lockfile); the exact value "none" skips the install phase
     default: ""
   module:
     description: Path to your app's Composer module

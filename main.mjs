@@ -14,6 +14,7 @@ import {
   selectPrismaCliCommand,
 } from "./cli.mjs";
 import { resolveCredential } from "./credentials.mjs";
+import { selectInstallCommand } from "./install.mjs";
 import { deployedUrlsFromOutput, deployedUrlsFromReport } from "./deployment.mjs";
 import { readRunReport, renderJobSummary } from "./summary.mjs";
 import { failurePatch, guardReport, makeReporter, mapPhase, reportEarlyFailure } from "./report.mjs";
@@ -232,19 +233,15 @@ if (bunVersion === null) {
   );
 }
 
-const installCommand = (() => {
-  const explicit = input("install-command");
-  if (explicit) return explicit;
-  if (existsSync(join(workdir, "bun.lock")) || existsSync(join(workdir, "bun.lockb"))) {
-    return "bun install --frozen-lockfile";
-  }
-  if (existsSync(join(workdir, "package-lock.json"))) return "npm ci";
-  return null;
-})();
-if (!installCommand) {
+// null skips the install phase (install-command: none); undefined means no
+// command was set and none could be detected.
+const installCommand = selectInstallCommand(input("install-command"), (name) =>
+  existsSync(join(workdir, name)),
+);
+if (installCommand === undefined) {
   await failEarly(
     "install",
-    `install-auto-detect-failed: no bun.lock, bun.lockb, or package-lock.json in ${workdir} (pnpm/yarn are out of scope); set the install-command input`,
+    `install-auto-detect-failed: no bun.lock, bun.lockb, or package-lock.json in ${workdir} (pnpm/yarn are out of scope); set the install-command input, or set it to "none" when an earlier step already installed the dependencies`,
   );
 }
 
@@ -294,7 +291,11 @@ if (buildId) {
   setOutput("build-id", STUB_BUILD_ID);
 }
 
-await runPhase("install", installCommand);
+if (installCommand === null) {
+  log("install: skipped (install-command: none)");
+} else {
+  await runPhase("install", installCommand);
+}
 
 const localCli = findLocalPrismaCli(workdir, resolve(process.env.GITHUB_WORKSPACE ?? "."));
 const hasLocalBin = localCli !== null;
@@ -314,7 +315,8 @@ if (!hasLocalBin && !prismaVersion) {
 const buildCommand = selectBuildCommand(input("build-command"));
 if (buildCommand === null) {
   // Install already reported the server-side "build" phase (mapPhase sends
-  // install as "build"), so the skip needs no report update of its own.
+  // install as "build"), so the skip needs no report update of its own. When
+  // install is skipped too, the deploy phase is the first one reported.
   log("build: skipped (build-command: none)");
 } else {
   await runPhase("build", buildCommand);

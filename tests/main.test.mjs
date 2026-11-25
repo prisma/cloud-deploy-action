@@ -90,3 +90,26 @@ test("refuses to deploy a repository without a prisma CLI when no prisma-version
   assert.match(outputs, /^outcome=failed$/m);
   assert.match(result.stdout, /::error::config failed: no prisma CLI in node_modules from .* up to the repository root: add prisma as a devDependency/);
 });
+
+test('install-command "none" skips the install phase and runs nothing in its place', () => {
+  const { result } = runMain(
+    { "install-command": "none", "build-command": "none", "api-url": "http://127.0.0.1:9" },
+    { PRISMA_SERVICE_TOKEN: "token" },
+  );
+  assert.match(result.stdout, /^install: skipped \(install-command: none\)$/m);
+  assert.doesNotMatch(result.stdout, /::group::install/);
+  // The run goes on to the next check, which an empty workspace fails.
+  assert.match(result.stdout, /::error::config failed: no prisma CLI in node_modules/);
+});
+
+test('install-command "none" needs no lockfile', () => {
+  const { result } = runMain({ "install-command": "none" });
+  assert.doesNotMatch(result.stdout, /install-auto-detect-failed/);
+});
+
+test("an empty install-command without a lockfile still fails, and names the none option", () => {
+  const { result, outputs } = runMain({});
+  assert.equal(result.status, 1);
+  assert.match(outputs, /^outcome=failed$/m);
+  assert.match(result.stdout, /::error::install failed: install-auto-detect-failed: .* or set it to "none"/);
+});
