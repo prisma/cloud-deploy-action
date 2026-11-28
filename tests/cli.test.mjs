@@ -5,6 +5,7 @@ import {
   findLocalPrismaCli,
   isSupportedBunVersion,
   selectPrismaCliCommand,
+  singleAppCliCommand,
   takesEntryFlag,
   takesEnvironmentFlag,
 } from "../cli.mjs";
@@ -213,4 +214,24 @@ test("reports an empty version when the prisma package cannot be read", () => {
   mkdirSync(join(root, "node_modules", ".bin"), { recursive: true });
   writeFileSync(join(root, "node_modules", ".bin", "prisma"), "");
   assert.deepEqual(findLocalPrismaCli(root, root), { version: "" });
+});
+
+test("a single app runs the newest prisma CLI through npx", () => {
+  assert.deepEqual(singleAppCliCommand("", "", "proj_1"), [
+    "npx",
+    ["--yes", "prisma@latest", "deploy", "--project", "proj_1"],
+    "single app: prisma@latest (npx)",
+  ]);
+});
+
+test("a single app passes the environment and the pinned version", () => {
+  assert.deepEqual(singleAppCliCommand("8.1.0", "pr-7", "web")[1], [
+    "--yes",
+    "prisma@8.1.0",
+    "deploy",
+    "--project",
+    "web",
+    "--environment",
+    "pr-7",
+  ]);
 });

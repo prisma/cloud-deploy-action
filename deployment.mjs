@@ -56,3 +56,18 @@ export function deployedUrlsFromOutput(output) {
   const root = topLevelAddress(Object.keys(urls));
   return { urls, url: root ? urls[root] : deployedUrlFromOutput(output) };
 }
+
+/**
+ * The deployed service's public URL, keyed by the service's name, read from
+ * the line a single-app `prisma deploy` prints to stdout: the name,
+ * `compute-service`, the service id and the URL, separated by tabs.
+ */
+export function deployedUrlsFromSingleAppOutput(output) {
+  for (const line of typeof output === "string" ? output.split("\n") : []) {
+    const [name, kind, , url] = line.replace(ANSI_SGR_RE, "").trim().split("\t");
+    if (kind === "compute-service" && name && /^https?:\/\//.test(url ?? "")) {
+      return { urls: { [name]: url }, url };
+    }
+  }
+  return { urls: {}, url: deployedUrlFromOutput(output) };
+}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deployedUrlFromOutput, deployedUrlsFromOutput, deployedUrlsFromReport } from "../deployment.mjs";
+import { deployedUrlFromOutput, deployedUrlsFromOutput, deployedUrlsFromReport, deployedUrlsFromSingleAppOutput } from "../deployment.mjs";
 
 const ESC = String.fromCharCode(27);
 
@@ -160,4 +160,23 @@ test("reads a single unprefixed service from the run report", () => {
 test("reads no URLs from a missing report or one without services", () => {
   assert.deepEqual(deployedUrlsFromReport(null), { urls: {}, url: null });
   assert.deepEqual(deployedUrlsFromReport({ nodes: [] }), { urls: {}, url: null });
+});
+
+test("a single-app deploy's result line gives the url keyed by the service name", () => {
+  const output = "web\tcompute-service\tcps_1\thttps://web1.fra.prisma.build\n";
+  assert.deepEqual(deployedUrlsFromSingleAppOutput(output), {
+    urls: { web: "https://web1.fra.prisma.build" },
+    url: "https://web1.fra.prisma.build",
+  });
+});
+
+test("single-app output with no result line falls back to the first prisma.build address", () => {
+  assert.deepEqual(deployedUrlsFromSingleAppOutput("live at https://web1.fra.prisma.build\n"), {
+    urls: {},
+    url: "https://web1.fra.prisma.build",
+  });
+});
+
+test("single-app output with no address gives no url", () => {
+  assert.deepEqual(deployedUrlsFromSingleAppOutput(""), { urls: {}, url: null });
 });

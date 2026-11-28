@@ -29,6 +29,7 @@ jobs:
           node --check main.mjs
           node --check post.mjs
           node --check credentials.mjs
+          node --check project.mjs
       - name: Unit-test the action scripts
         run: node --test tests/*.test.mjs
       - name: Sanity-check action.yml
@@ -42,7 +43,7 @@ jobs:
               ["runs.main: main.mjs", /^  main: main\.mjs$/m],
               ["runs.post: post.mjs", /^  post: post\.mjs$/m],
             ];
-            for (const name of ["build-command", "install-command", "module", "mode", "environment", "stage", "prisma-version", "working-directory", "api-url"]) {
+            for (const name of ["build-command", "install-command", "module", "project", "mode", "environment", "stage", "prisma-version", "working-directory", "api-url"]) {
               checks.push([`input ${name}`, new RegExp(`^  ${name}:$`, "m")]);
             }
             for (const name of ["outcome", "build-id", "url", "urls"]) {

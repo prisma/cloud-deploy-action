@@ -138,3 +138,37 @@ export function selectPrismaCliCommand(prismaVersion, binExists, composerArgs) {
     `composer=prisma@${prismaVersion} (bunx fallback)`,
   ];
 }
+
+/**
+ * The newest `prisma` CLI. A single app has no Composer version the CLI must
+ * match, so a repository without a pinned version gets the current release.
+ */
+export const SINGLE_APP_PRISMA_VERSION = "latest";
+
+/**
+ * Returns [cmd, args, logLabel] for deploying a repository with no Composer
+ * module. The CLI runs under Node.js through npx, so the repository's own
+ * install and build commands run under the Node.js the workflow set up, not
+ * under Bun's `node` shim. The repository's dependencies are not installed
+ * yet at this point, so there is no local CLI to prefer.
+ *
+ * @param {string} prismaVersion - The prisma-version input; empty uses SINGLE_APP_PRISMA_VERSION.
+ * @param {string} environment - Empty for production.
+ * @param {string} project - The project id or name.
+ * @returns {[string, string[], string]}
+ */
+export function singleAppCliCommand(prismaVersion, environment, project) {
+  const version = prismaVersion || SINGLE_APP_PRISMA_VERSION;
+  return [
+    "npx",
+    [
+      "--yes",
+      `prisma@${version}`,
+      "deploy",
+      "--project",
+      project,
+      ...(environment ? ["--environment", environment] : []),
+    ],
+    `single app: prisma@${version} (npx)`,
+  ];
+}
