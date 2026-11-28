@@ -1,6 +1,7 @@
 // prisma/cloud-deploy-action: install, build, and deploy (or destroy) a
-// Prisma Composer app, reporting the attempt to the Builds API when a
-// credential is available. Interface and behaviors are frozen by ./README.md.
+// Prisma Composer app, or deploy a repository with no Composer module as a
+// single app, reporting the attempt to the Builds API when a credential is
+// available. Interface and behaviors are frozen by ./README.md.
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,9 +13,15 @@ import {
   findLocalPrismaCli,
   isSupportedBunVersion,
   selectPrismaCliCommand,
+  singleAppCliCommand,
 } from "./cli.mjs";
 import { resolveCredential } from "./credentials.mjs";
-import { deployedUrlsFromOutput, deployedUrlsFromReport } from "./deployment.mjs";
+import {
+  deployedUrlsFromOutput,
+  deployedUrlsFromReport,
+  deployedUrlsFromSingleAppOutput,
+} from "./deployment.mjs";
+import { resolveSingleAppProject } from "./project.mjs";
 import { readRunReport, renderJobSummary } from "./summary.mjs";
 import { failurePatch, guardReport, makeReporter, mapPhase, reportEarlyFailure } from "./report.mjs";
 import { runCommand } from "./run.mjs";
@@ -145,9 +152,12 @@ async function runPhase(phase, command, args, capture = false) {
 }
 
 const mode = input("mode") || "deploy";
-const modulePath = input("module") || "module.ts";
 const prismaVersion = input("prisma-version");
 const workdir = resolve(process.env.GITHUB_WORKSPACE ?? ".", input("working-directory") || ".");
+const modulePath = input("module") || "module.ts";
+// A repository with no Composer module deploys as a single app: the Prisma CLI
+// runs the repository's own install, build and start commands.
+const singleApp = !input("module") && !existsSync(join(workdir, modulePath));
 const repository = process.env.GITHUB_REPOSITORY ?? "";
 const branch = process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || "";
 const runUrl = `${process.env.GITHUB_SERVER_URL ?? "https://github.com"}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`;
@@ -171,7 +181,11 @@ process.env.PRISMA_COMPOSER_REPORT_FILE ||= join(process.env.RUNNER_TEMP || tmpd
 // The CLI resolves a relative path against its cwd, which is workdir.
 const reportPath = resolve(workdir, process.env.PRISMA_COMPOSER_REPORT_FILE);
 
-log(`prisma-deploy: mode=${mode} module=${modulePath} working-directory=${workdir}`);
+log(
+  singleApp
+    ? `prisma-deploy: mode=${mode} single app (no Composer module) working-directory=${workdir}`
+    : `prisma-deploy: mode=${mode} module=${modulePath} working-directory=${workdir}`,
+);
 // Every exit path leaves valid JSON for fromJSON(); a deploy overwrites it (last write wins).
 setOutput("urls", "{}");
 
@@ -208,11 +222,18 @@ if (mode === "destroy" && !environment) {
   );
 }
 log(environment ? `${mode} target: environment ${environment}` : `${mode} target: production (default branch)`);
+if (singleApp && mode === "destroy") {
+  await failEarly(
+    "config",
+    "destroy is not supported for a repository without a Composer module; delete the branch or the service in the Prisma Console",
+  );
+}
 
 // Bun is required: composer runs under Bun, not Node. The generated Prisma
 // deploy workflow adds `oven-sh/setup-bun@v2` for every project.
-const bunVersionCheck = spawnSync("bun", ["--version"], { stdio: "pipe" });
-if (bunVersionCheck.error?.code === "ENOENT") {
+// A single app needs no Bun on the runner: the CLI runs under Node.js.
+const bunVersionCheck = singleApp ? null : spawnSync("bun", ["--version"], { stdio: "pipe" });
+if (bunVersionCheck?.error?.code === "ENOENT") {
   await failEarly(
     "config",
     "bun not found on PATH: add `- uses: oven-sh/setup-bun@v2` before this action step; the generated Prisma deploy workflow includes this automatically",
@@ -222,8 +243,10 @@ if (bunVersionCheck.error?.code === "ENOENT") {
 // upload, failing every deploy with an opaque HTTP 411 — name the cause
 // here instead. An unreadable version is only a warning; the guard must
 // never break a working deploy over output formatting.
-const bunVersion = ((bunVersionCheck.stdout ?? "").toString().match(/\d+\.\d+\.\d+/) ?? [null])[0];
-if (bunVersion === null) {
+const bunVersion = ((bunVersionCheck?.stdout ?? "").toString().match(/\d+\.\d+\.\d+/) ?? [null])[0];
+if (singleApp) {
+  // No Bun version to check.
+} else if (bunVersion === null) {
   log("::warning::could not determine the bun version; continuing without the compatibility check");
 } else if (!isSupportedBunVersion(bunVersion)) {
   await failEarly(
@@ -241,7 +264,7 @@ const installCommand = (() => {
   if (existsSync(join(workdir, "package-lock.json"))) return "npm ci";
   return null;
 })();
-if (!installCommand) {
+if (!singleApp && !installCommand) {
   await failEarly(
     "install",
     `install-auto-detect-failed: no bun.lock, bun.lockb, or package-lock.json in ${workdir} (pnpm/yarn are out of scope); set the install-command input`,
@@ -292,6 +315,10 @@ if (buildId) {
   process.env.PRISMA_BUILD_ID = buildId;
 } else {
   setOutput("build-id", STUB_BUILD_ID);
+}
+
+if (singleApp) {
+  await deploySingleApp();
 }
 
 await runPhase("install", installCommand);
@@ -356,3 +383,29 @@ if (reporter && buildId) {
   );
 }
 finish("succeeded", { urls });
+
+// Deploys a repository with no Composer module. The CLI installs and builds
+// by itself, because it compares the folders before and after the build to
+// find the build output; a build run here first would hide that output.
+async function deploySingleApp() {
+  if (input("install-command")) {
+    log("::warning::the install-command input is not used for a single app; set app.install in prisma.config.ts");
+  }
+  let project;
+  try {
+    project = await resolveSingleAppProject(input("project"), { apiUrl, token: credential.token });
+  } catch (error) {
+    await fail("config", error.message);
+  }
+  const [cliCmd, cliArgs, cliLabel] = singleAppCliCommand(prismaVersion, environment, project);
+  log(cliLabel);
+  const output = await runPhase("deploy", cliCmd, cliArgs, true);
+  const { urls, url } = deployedUrlsFromSingleAppOutput(output);
+  setOutput("url", url ?? "");
+  setOutput("urls", JSON.stringify(urls));
+  if (reporter && buildId) {
+    await reportUpdate(url ? { state: "succeeded", deployedUrl: url } : { state: "succeeded" }, "succeeded");
+  }
+  finish("succeeded", { urls });
+  process.exit(0);
+}

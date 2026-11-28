@@ -73,6 +73,26 @@ Repositories that are not connected in the Console can deploy with an explicit c
 
 An explicit token always wins over the OIDC exchange.
 
+## Deploying a single app
+
+A repository with no Composer module deploys as a single app. The workflow needs no inputs:
+
+```yaml
+      - uses: prisma/cloud-deploy-action@v1
+```
+
+The action runs in this mode when the `module` input is empty and the working directory has no `module.ts`. It then runs one phase, `prisma deploy`, and the Prisma CLI does the rest:
+
+- **Install** comes from your lockfile: npm, pnpm, yarn or bun.
+- **Build** is your `build` script.
+- **Start** is your `start` script, a server file or a static site your build wrote, or an entry file such as `index.ts`.
+
+The app starts on Prisma Cloud. It goes live only when it listens on a port; an app that exits at start fails the run with the app's own output, and the version that serves traffic stays unchanged.
+
+To change a setting, add an `app` section to `prisma.config.ts` in the repository (`install`, `build`, `start`, `static`, `port`). The `install-command` and `build-command` inputs are not used for a single app, because the CLI compares your folders before and after the build to find what the build wrote.
+
+The project comes from the credential. A repository connected through the Prisma Console gets a token for its one linked project. With a workspace-wide `PRISMA_SERVICE_TOKEN`, set the `project` input.
+
 ## How it works
 
 Each run has three phases: install, build, and deploy. Your workflow owns checkout and the toolchain. The action runs your install and build commands exactly as configured, and it never inspects your repository to decide how to build. A repository with no build script — one that runs its source directly — sets `build-command: none` to skip the build phase. The deploy phase hands your built app to the top-level `deploy` command of the unified [`prisma` CLI](https://www.npmjs.com/package/prisma) (`prisma deploy`, since `8.0.0-rc.8`; earlier versions used the removed `prisma composer` prefix and are not supported), running it under Bun. The action runs the repository's own `prisma` CLI, which the repository must carry as a devDependency: the CLI and the app must be on the same Composer version, and only the repository's lockfile can guarantee that. The action looks for it in the working directory and its parents up to the repository root, so a monorepo can install it at the root. A repository without it fails with an error that says so, unless it sets `prisma-version` (use an exact version: the npm `next` tag is not the newest release). Bun `1.3.10` or newer must be on the runner PATH — add `oven-sh/setup-bun@v2` before this action (it installs the latest by default). The generated Prisma deploy workflow includes that step automatically.
@@ -91,11 +111,12 @@ The credential resolves in order: an explicit `PRISMA_SERVICE_TOKEN` from the en
 | --- | --- | --- |
 | `build-command` | `npm run build` | Your build command, run verbatim. It runs in both modes, because destroy evaluates the built app to know what to remove. The exact value `none` skips the build phase in both modes, for repositories with no build script; an empty value keeps the default. |
 | `install-command` | auto | Detected from the lockfile: `npm ci` for `package-lock.json`, `bun install --frozen-lockfile` for a bun lockfile. Set this to override. pnpm and yarn are not supported yet. |
-| `module` | `module.ts` | Path to your app's Composer module. On `prisma` 8.0.0-rc.28 and later the action passes it as `--entry`, which overrides the `entry` in `prisma.config.ts`. |
+| `module` | `module.ts` when it exists | Path to your app's Composer module. On `prisma` 8.0.0-rc.28 and later the action passes it as `--entry`, which overrides the `entry` in `prisma.config.ts`. When the input is empty and the working directory has no `module.ts`, the repository deploys as a [single app](#deploying-a-single-app). |
+| `project` | derived | Single app only. The project id or name to deploy to. Empty uses the only project the credential can read, and fails the run when the credential can read several. |
 | `mode` | `deploy` | `deploy` or `destroy`. |
 | `environment` | derived | Empty derives the environment from the branch: the default branch deploys to production, any other branch name becomes the environment. `destroy` requires a resolved environment. On `prisma` 8.0.0-rc.30 and later the action passes it as `--environment`; earlier versions get `--stage`. |
 | `stage` | empty | The older name for `environment`, kept so existing workflows keep working. Setting both to different values fails the run. |
-| `prisma-version` | empty | Runs this `prisma` version via bunx when the repository has no `prisma` devDependency. Empty refuses to deploy such a repository. Repositories that carry the devDependency always deploy with their own installed version. |
+| `prisma-version` | empty | Runs this `prisma` version via bunx when the repository has no `prisma` devDependency. Empty refuses to deploy such a repository. Repositories that carry the devDependency always deploy with their own installed version. A single app always runs this version through npx, and the newest release when the input is empty. |
 | `working-directory` | `.` | Where install, build, and deploy run. |
 | `api-url` | `https://api.prisma.io` | Prisma API base URL for the OIDC credential exchange. |
 
@@ -148,7 +169,12 @@ When a run has no credential, no `[report-stub]` log lines appear; the run is si
 
 Bun `1.3.10` or newer must be on the runner PATH. Add `oven-sh/setup-bun@v2` before this action step; it installs the latest Bun unless a pin (package.json's `packageManager`, a `.bun-version` file, or the step's `bun-version` input) says otherwise. Bun `1.3.9` and older omit Content-Length on the deploy's artifact upload, failing it with HTTP 411, so the action refuses to run on them with an error naming that bug. The generated Prisma deploy workflow adds the setup step for every project.
 
+A single app needs no Bun on the runner. It needs Node.js with npx, and the package manager your lockfile belongs to.
+
 ## Known limitations
+
+- `mode: destroy` refuses a repository with no Composer module. Delete the branch or the service in the Prisma Console.
+- For a single app, the build report shows the whole run as the deploy phase. Install and build run inside `prisma deploy`, so a failed build is reported as a failed deploy.
 
 - `mode: destroy` does not work against the current CLI: `prisma` up to at least `8.0.0-rc.33` has no `destroy` command, so the destroy invocation fails. Composer removes one environment through the `destroy` operation of `@prisma/composer/control` instead. The action keeps the mode and its invocation shape while the CLI's teardown story is settled. In practice, repositories connected through the Prisma Console get preview teardown from the platform's branch automation when a branch is deleted, without running this action.
 - Install detection covers npm and bun lockfiles. Repositories using pnpm or yarn need an explicit `install-command`, and deploys are not tested against them yet.

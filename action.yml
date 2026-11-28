@@ -2,14 +2,17 @@ name: Deploy to Prisma Cloud
 description: Build and deploy your app to Prisma Cloud from GitHub Actions
 inputs:
   build-command:
-    description: Your build command, run verbatim in both modes; the exact value "none" skips the build phase
+    description: Your build command, run verbatim in both modes; the exact value "none" skips the build phase. Not used for a single app, which builds with its own build script
     default: npm run build
   install-command:
-    description: Empty auto-detects from the lockfile (npm ci or bun install --frozen-lockfile)
+    description: Empty auto-detects from the lockfile (npm ci or bun install --frozen-lockfile). Not used for a single app, which installs from its own lockfile
     default: ""
   module:
-    description: Path to your app's Composer module
-    default: module.ts
+    description: Path to your app's Composer module. Empty uses module.ts when it exists; a repository with no module.ts deploys as a single app
+    default: ""
+  project:
+    description: Single app only. The project id or name to deploy to. Empty uses the only project the credential can read
+    default: ""
   mode:
     description: deploy or destroy
     default: deploy
@@ -21,7 +24,7 @@ inputs:
     deprecationMessage: Use the environment input instead of stage.
     default: ""
   prisma-version:
-    description: Runs this prisma version via bunx when the repository has no prisma devDependency. Empty refuses to deploy such a repository, since the CLI must match the app's Composer version
+    description: Runs this prisma version via bunx when the repository has no prisma devDependency. Empty refuses to deploy such a repository, since the CLI must match the app's Composer version. A single app always runs this version, and the newest one when empty
     default: ""
   working-directory:
     description: Where install, build, and deploy run
